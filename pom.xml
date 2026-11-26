@@ -46,13 +46,12 @@
             <resource>
                 <directory>resources</directory>
                 <includes>
-                    <include>icon.svg</include>
+                    <include>icon.png</include>
                 </includes>
             </resource>
         </resources>
         <plugins>
-            <!-- "mvnw package" also writes target/remates.jar: the app plus every library, runnable on its own
-                 (used by empaquetar.ps1 to build Remates.exe with jpackage) -->
+            <!-- "mvnw package" also writes target/remates.jar: the app plus every library, runnable on its own -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
