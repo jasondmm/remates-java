@@ -1,0 +1,802 @@
+package remates.ui;
+
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.Font;
+import java.awt.event.ActionEvent;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.function.UnaryOperator;
+
+import javax.swing.AbstractAction;
+import javax.swing.BorderFactory;
+import javax.swing.Box;
+import javax.swing.DefaultCellEditor;
+import javax.swing.JButton;
+import javax.swing.JColorChooser;
+import javax.swing.JComboBox;
+import javax.swing.JComponent;
+import javax.swing.JInternalFrame;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTabbedPane;
+import javax.swing.JTable;
+import javax.swing.JTextField;
+import javax.swing.JToolBar;
+import javax.swing.KeyStroke;
+import javax.swing.ListSelectionModel;
+import javax.swing.SwingConstants;
+import javax.swing.SwingWorker;
+import javax.swing.UIManager;
+import javax.swing.WindowConstants;
+import javax.swing.event.InternalFrameAdapter;
+import javax.swing.event.InternalFrameEvent;
+import javax.swing.table.AbstractTableModel;
+import javax.swing.table.DefaultTableCellRenderer;
+
+import remates.sheets.ClienteSheets;
+import remates.sheets.ConfiguracionSheets;
+import remates.sheets.FuenteSheets;
+import remates.sincronizados.Cambios;
+import remates.sincronizados.CeldaSincronizada;
+import remates.sincronizados.ColaGuardado;
+import remates.sincronizados.FilaSincronizada;
+import remates.sincronizados.Formato;
+import remates.sincronizados.HojaSincronizada;
+import remates.sincronizados.Historial;
+
+/**
+ * "Remates sincronizados": the auctions kept in the user's Google spreadsheet (tabs "Terrenos" and
+ * "Vehiculos"), with the same columns, sorting and filters as the Boletín form, the file's formatting, and
+ * editing: cell values, deleting rows, basic formatting of cells or full rows, Undo/Redo. Every change is saved to
+ * the file at once (typed values after a 1.5 s pause); a change that could not be saved is shown in light red.
+ * Only one instance exists (see {@link Remates#abrirSincronizados()}).
+ */
+public class RematesSincronizados extends JInternalFrame {
+
+    private static final String TIPO_T = Boletin.TIPO_TERRENOS;
+    private static final int ESPERA_TEXTO_MS = 1500;
+    private static final Integer[] TAMANOS = {8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36};
+
+    private final Remates remates;
+    private final ConfiguracionSheets configuracion;
+    private final FuenteSheets.Conector conector;
+    /** Current connection; replaced when the sign-in is renewed (read by the save thread, hence volatile). */
+    private volatile FuenteSheets fuente;
+    private ColaGuardado cola;
+    private Historial historial;
+
+    private final ModeloHoja modeloT = new ModeloHoja(ColumnasRemate.TERRENOS_HEADERS);
+    private final ModeloHoja modeloV = new ModeloHoja(ColumnasRemate.VEH_HEADERS);
+    private final JTable tablaT = TablasRemates.crearTabla(modeloT, ColumnasRemate.TERRENOS_WIDTHS, modeloT::estilo);
+    private final JTable tablaV = TablasRemates.crearTabla(modeloV, ColumnasRemate.VEH_WIDTHS, modeloV::estilo);
+    private final JTable numerosT = cabeceraFilas(tablaT);
+    private final JTable numerosV = cabeceraFilas(tablaV);
+    private final JTabbedPane tabs = new JTabbedPane();
+    private final PanelFiltros filtros = new PanelFiltros(this::tablaActual, this::actualizarTitulosTabs);
+
+    private final JButton btnDeshacer = boton("Deshacer", "Deshacer (Ctrl+Z)");
+    private final JButton btnRehacer = boton("Rehacer", "Rehacer (Ctrl+Y)");
+    private final JButton btnFondo = boton("Fondo", "Color de fondo de las celdas o filas seleccionadas");
+    private final JButton btnFuente = boton("Color de letra", "Color de la letra");
+    private final JComboBox<Integer> comboTamano = new JComboBox<>(TAMANOS);
+    private final JButton btnNegrita = boton("N", "Negrita");
+    private final JButton btnCursiva = boton("K", "Cursiva");
+    private final JButton btnSubrayado = boton("S", "Subrayado");
+    private final JButton btnTachado = boton("abc", "Tachado");
+    private final JButton btnIzquierda = boton("⯇", "Alinear a la izquierda");
+    private final JButton btnCentro = boton("☰", "Centrar");
+    private final JButton btnDerecha = boton("⯈", "Alinear a la derecha");
+    private final JButton btnBorrarFormato = boton("Borrar formato", "Quita el formato de la selección");
+    private final JButton btnEliminar = boton("Eliminar filas", "Elimina las filas seleccionadas (Supr)");
+    private final JButton btnActualizar = boton("Actualizar", "Vuelve a cargar la hoja desde Google Sheets");
+    private final JLabel lblGuardado = new JLabel(" ");
+    private final JButton btnReintentar = boton("Reintentar", "Vuelve a enviar los cambios que no se guardaron");
+    private final JLabel lblEstado = new JLabel("Conectando con Google Sheets…");
+
+    private final List<Runnable> alCargar = new ArrayList<>();
+    private boolean cargado;
+    private boolean sincronizandoSeleccion;
+    private Set<String> refsT = Set.of();
+    private Set<String> refsV = Set.of();
+
+    RematesSincronizados(Remates remates, ConfiguracionSheets configuracion, FuenteSheets.Conector conector) {
+        super("Remates sincronizados", true, true, true, true);
+        setName("RematesSincronizados");
+        this.remates = remates;
+        this.configuracion = configuracion;
+        this.conector = conector;
+        setFrameIcon(IconoApp.iconoPequeno());
+        setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+        setContentPane(construir());
+        setSize(1240, 720);
+        habilitarEdicion(false);
+        addInternalFrameListener(new InternalFrameAdapter() {
+            @Override
+            public void internalFrameClosing(InternalFrameEvent e) {
+                cerrar();
+            }
+
+            @Override
+            public void internalFrameClosed(InternalFrameEvent e) {
+                remates.sincronizadosCerrado(RematesSincronizados.this);
+            }
+        });
+    }
+
+    // ------------------------------------------------------------------ layout
+
+    private JComponent construir() {
+        JToolBar barra = new JToolBar();
+        barra.setFloatable(false);
+        barra.add(btnDeshacer);
+        barra.add(btnRehacer);
+        barra.addSeparator();
+        barra.add(btnFondo);
+        barra.add(btnFuente);
+        comboTamano.setMaximumSize(new Dimension(70, 28));
+        comboTamano.setSelectedItem(10);
+        comboTamano.setToolTipText("Tamaño de letra");
+        barra.add(comboTamano);
+        btnNegrita.setFont(btnNegrita.getFont().deriveFont(Font.BOLD));
+        btnCursiva.setFont(btnCursiva.getFont().deriveFont(Font.ITALIC));
+        btnSubrayado.setFont(TablasRemates.fuente(btnSubrayado.getFont(), Formato.VACIO.conSubrayado(true)));
+        btnTachado.setFont(TablasRemates.fuente(btnTachado.getFont(), Formato.VACIO.conTachado(true)));
+        barra.add(btnNegrita);
+        barra.add(btnCursiva);
+        barra.add(btnSubrayado);
+        barra.add(btnTachado);
+        barra.add(btnIzquierda);
+        barra.add(btnCentro);
+        barra.add(btnDerecha);
+        barra.add(btnBorrarFormato);
+        barra.addSeparator();
+        barra.add(btnEliminar);
+        barra.addSeparator();
+        barra.add(btnActualizar);
+        barra.add(Box.createHorizontalGlue());
+        barra.add(lblGuardado);
+        barra.add(Box.createHorizontalStrut(6));
+        btnReintentar.setVisible(false);
+        barra.add(btnReintentar);
+
+        btnDeshacer.addActionListener(e -> deshacer());
+        btnRehacer.addActionListener(e -> rehacer());
+        btnFondo.addActionListener(e -> elegirColor("Color de fondo", Formato::conFondo, "Color de fondo"));
+        btnFuente.addActionListener(e -> elegirColor("Color de letra", Formato::conFuente, "Color de letra"));
+        // the combo is only changed by the user (its initial value is set before this listener exists)
+        comboTamano.addActionListener(e -> {
+            Integer t = (Integer) comboTamano.getSelectedItem();
+            formatear(f -> f.conTamano(t), "Tamaño de letra");
+        });
+        btnNegrita.addActionListener(e -> alternar(Formato::esNegrita, Formato::conNegrita, "Negrita"));
+        btnCursiva.addActionListener(e -> alternar(Formato::esCursiva, Formato::conCursiva, "Cursiva"));
+        btnSubrayado.addActionListener(e -> alternar(Formato::esSubrayado, Formato::conSubrayado, "Subrayado"));
+        btnTachado.addActionListener(e -> alternar(Formato::esTachado, Formato::conTachado, "Tachado"));
+        btnIzquierda.addActionListener(e -> formatear(f -> f.conAlineacion("LEFT"), "Alinear"));
+        btnCentro.addActionListener(e -> formatear(f -> f.conAlineacion("CENTER"), "Alinear"));
+        btnDerecha.addActionListener(e -> formatear(f -> f.conAlineacion("RIGHT"), "Alinear"));
+        btnBorrarFormato.addActionListener(e -> formatear(f -> Formato.VACIO, "Borrar formato"));
+        btnEliminar.addActionListener(e -> eliminarFilas());
+        btnActualizar.addActionListener(e -> actualizar());
+        btnReintentar.addActionListener(e -> {
+            if (cola != null) {
+                cola.reintentar();
+            }
+        });
+
+        tablaT.setName("Terrenos");
+        tablaV.setName("Vehículos");
+        for (JTable t : List.of(tablaT, tablaV)) {
+            ModeloHoja m = (ModeloHoja) t.getModel();
+            for (int c = 0; c < t.getColumnCount(); c++) {
+                t.getColumnModel().getColumn(c).setCellEditor(new EditorCelda(m.getColumnName(c)));
+            }
+            t.getRowSorter().addRowSorterListener(e -> refrescarNumeros(t));
+            t.getSelectionModel().addListSelectionListener(e -> {
+                if (!sincronizandoSeleccion) {
+                    cabecera(t).clearSelection();   // clicking cells: cell selection, not full rows
+                }
+            });
+        }
+        tabs.addTab("", scroll(tablaT, numerosT));
+        tabs.addTab("", scroll(tablaV, numerosV));
+        filtros.registrar(tablaT);
+        filtros.registrar(tablaV);
+        tabs.addChangeListener(e -> filtros.tablaVisibleCambio());
+        actualizarTitulosTabs();
+
+        JPanel centro = new JPanel(new BorderLayout());
+        centro.add(filtros, BorderLayout.NORTH);
+        centro.add(tabs, BorderLayout.CENTER);
+        atajo(centro, KeyStroke.getKeyStroke(KeyEvent.VK_Z, InputEvent.CTRL_DOWN_MASK), "deshacer", this::deshacer);
+        atajo(centro, KeyStroke.getKeyStroke(KeyEvent.VK_Y, InputEvent.CTRL_DOWN_MASK), "rehacer", this::rehacer);
+        atajo(centro, KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "eliminar", this::eliminarFilas);
+
+        JPanel raiz = new JPanel(new BorderLayout());
+        raiz.add(barra, BorderLayout.NORTH);
+        raiz.add(centro, BorderLayout.CENTER);
+        lblEstado.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+        raiz.add(lblEstado, BorderLayout.SOUTH);
+        return raiz;
+    }
+
+    private static JButton boton(String texto, String ayuda) {
+        JButton b = new JButton(texto);
+        b.setToolTipText(ayuda);
+        b.setFocusable(false);   // keeps the table selection while formatting
+        return b;
+    }
+
+    private static void atajo(JComponent c, KeyStroke tecla, String nombre, Runnable accion) {
+        c.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(tecla, nombre);
+        c.getActionMap().put(nombre, new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                accion.run();
+            }
+        });
+    }
+
+    /** Row-number column: clicking it selects full rows (formatting then applies to the whole row). */
+    private JTable cabeceraFilas(JTable tabla) {
+        JTable numeros = new JTable(new AbstractTableModel() {
+            @Override
+            public int getRowCount() {
+                return tabla.getRowCount();
+            }
+
+            @Override
+            public int getColumnCount() {
+                return 1;
+            }
+
+            @Override
+            public Object getValueAt(int r, int c) {
+                return r + 1;
+            }
+        });
+        numeros.setRowHeight(tabla.getRowHeight());
+        numeros.setFocusable(false);
+        numeros.setTableHeader(null);
+        numeros.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        numeros.setToolTipText("Clic para seleccionar la fila completa (Mayús/Ctrl para varias)");
+        DefaultTableCellRenderer r = new DefaultTableCellRenderer();
+        r.setHorizontalAlignment(SwingConstants.CENTER);
+        r.setBackground(UIManager.getColor("TableHeader.background"));
+        numeros.setDefaultRenderer(Object.class, r);
+        numeros.setPreferredScrollableViewportSize(new Dimension(46, 0));
+        numeros.getSelectionModel().addListSelectionListener(e -> {
+            if (e.getValueIsAdjusting() || sincronizandoSeleccion) {
+                return;
+            }
+            int[] filas = numeros.getSelectedRows();
+            if (filas.length == 0) {
+                return;
+            }
+            sincronizandoSeleccion = true;
+            try {
+                tabla.clearSelection();
+                for (int f : filas) {
+                    tabla.addRowSelectionInterval(f, f);
+                }
+                tabla.setColumnSelectionInterval(0, tabla.getColumnCount() - 1);
+            } finally {
+                sincronizandoSeleccion = false;
+            }
+        });
+        return numeros;
+    }
+
+    private JTable cabecera(JTable tabla) {
+        return tabla == tablaT ? numerosT : numerosV;
+    }
+
+    private static JScrollPane scroll(JTable tabla, JTable numeros) {
+        JScrollPane s = new JScrollPane(tabla);
+        s.setRowHeaderView(numeros);
+        JLabel esquina = new JLabel("#", SwingConstants.CENTER);
+        s.setCorner(JScrollPane.UPPER_LEFT_CORNER, esquina);
+        return s;
+    }
+
+    private JTable tablaActual() {
+        return tabs.getSelectedIndex() == 1 ? tablaV : tablaT;
+    }
+
+    private ModeloHoja modeloActual() {
+        return (ModeloHoja) tablaActual().getModel();
+    }
+
+    /** Called after filtering and after every change: tab counts and the row-number columns. */
+    private void actualizarTitulosTabs() {
+        tabs.setTitleAt(0, ClienteSheets.TAB_TERRENOS + " (" + TablasRemates.conteo(tablaT) + ")");
+        tabs.setTitleAt(1, ClienteSheets.TAB_VEHICULOS + " (" + TablasRemates.conteo(tablaV) + ")");
+        refrescarNumeros(tablaT);
+        refrescarNumeros(tablaV);
+    }
+
+    /** The row-number column follows the visible rows (added, deleted, filtered or sorted) and their heights. */
+    private void refrescarNumeros(JTable tabla) {
+        JTable numeros = cabecera(tabla);
+        if (numeros == null) {
+            return;   // still building the form
+        }
+        ((AbstractTableModel) numeros.getModel()).fireTableDataChanged();
+        TablasRemates.ajustarAltos(tabla, ((ModeloHoja) tabla.getModel())::estilo, numeros);
+    }
+
+    private void habilitarEdicion(boolean si) {
+        for (JComponent c : List.of(btnFondo, btnFuente, comboTamano, btnNegrita, btnCursiva, btnSubrayado,
+            btnTachado, btnIzquierda, btnCentro, btnDerecha, btnBorrarFormato, btnEliminar, btnActualizar)) {
+            c.setEnabled(si);
+        }
+        actualizarBotonesHistorial();
+    }
+
+    // ------------------------------------------------------------------ loading
+
+    /** Asks for the credentials when they are missing, then loads the spreadsheet. */
+    void iniciar() {
+        if (!configuracion.completa() && !DialogoCredenciales.pedir(this, configuracion)) {
+            dispose();
+            return;
+        }
+        cargar();
+    }
+
+    private void cargar() {
+        cargado = false;
+        habilitarEdicion(false);
+        lblEstado.setText(fuente == null
+            ? "Conectando con Google Sheets… (la primera vez se abre el navegador para autorizar el acceso)"
+            : "Cargando la hoja…");
+        new SwingWorker<ClienteSheets.Carga, Void>() {
+            @Override
+            protected ClienteSheets.Carga doInBackground() throws Exception {
+                if (fuente == null) {
+                    fuente = conector.conectar(configuracion);
+                }
+                try {
+                    return fuente.cargar();
+                } catch (Exception e) {
+                    if (!ClienteSheets.esSesionInvalida(e)) {
+                        throw e;
+                    }
+                    synchronized (RematesSincronizados.this) {   // same lock as reconnecting while saving
+                        configuracion.borrarSesion();   // revoked or expired sign-in: sign in again once
+                        fuente = conector.conectar(configuracion);
+                    }
+                    return fuente.cargar();
+                }
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    mostrar(get());
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } catch (ExecutionException e) {
+                    errorAlCargar(e.getCause());
+                }
+            }
+        }.execute();
+    }
+
+    /**
+     * Sends a batch with the current connection. When the stored sign-in expired or was revoked meanwhile, signs in
+     * again (the browser opens) and sends the same batch once more, so nothing is lost. Runs on the save thread.
+     */
+    private void enviarConSesion(List<com.google.api.services.sheets.v4.model.Request> peticiones) throws Exception {
+        FuenteSheets actual = fuente;
+        try {
+            actual.enviar(peticiones);
+        } catch (Exception e) {
+            if (!ClienteSheets.esSesionInvalida(e)) {
+                throw e;
+            }
+            synchronized (this) {
+                if (fuente == actual) {           // nobody reconnected meanwhile
+                    configuracion.borrarSesion();
+                    fuente = conector.conectar(configuracion);
+                }
+            }
+            fuente.enviar(peticiones);
+        }
+    }
+
+    private void mostrar(ClienteSheets.Carga carga) {
+        if (cola == null) {
+            // the queue uses the current connection at send time (it may be renewed after an expired sign-in)
+            cola = new ColaGuardado(this::enviarConSesion, ESPERA_TEXTO_MS);
+            cola.alCambiar(this::actualizarGuardado);
+            historial = new Historial(cola);
+            historial.alCambiar(this::refrescar);
+        }
+        historial.limpiar();
+        modeloT.setHoja(carga.terrenos());
+        modeloV.setHoja(carga.vehiculos());
+        cargado = true;
+        habilitarEdicion(true);
+        refrescar();
+        lblEstado.setText("Hoja «" + carga.tituloArchivo() + "»: " + carga.terrenos().filas().size()
+            + " terrenos, " + carga.vehiculos().filas().size() + " vehículos. Doble clic en una fila de un "
+            + "Boletín para agregarla aquí.");
+        actualizarGuardado();
+        List<Runnable> pendientes = new ArrayList<>(alCargar);
+        alCargar.clear();
+        pendientes.forEach(Runnable::run);
+    }
+
+    private void errorAlCargar(Throwable e) {
+        lblEstado.setText("No se pudo cargar: " + ClienteSheets.mensaje(e));
+        Object[] opciones = {"Reintentar", "Configurar credenciales", "Cerrar"};
+        int r = JOptionPane.showOptionDialog(this, ClienteSheets.mensaje(e), "No se pudo cargar la hoja",
+            JOptionPane.DEFAULT_OPTION, JOptionPane.ERROR_MESSAGE, null, opciones, opciones[0]);
+        if (r == 0) {
+            cargar();
+        } else if (r == 1 && DialogoCredenciales.pedir(this, configuracion)) {
+            fuente = null;    // new settings: connect again
+            cola = null;
+            cargar();
+        } else {
+            alCargar.clear();
+            dispose();
+        }
+    }
+
+    private void actualizar() {
+        if (cola != null && cola.sinGuardar() > 0) {
+            int r = JOptionPane.showConfirmDialog(this, "Hay " + cola.sinGuardar() + " cambios que aún no se "
+                + "guardaron en Google Sheets. ¿Descartarlos y volver a cargar la hoja?", "Actualizar",
+                JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (r != JOptionPane.YES_OPTION) {
+                return;
+            }
+            cola.descartar();
+        }
+        cargar();
+    }
+
+    private void cerrar() {
+        if (cola != null) {
+            cola.enviarYa();
+            if (cola.estado() == ColaGuardado.Estado.ERROR) {
+                int r = JOptionPane.showConfirmDialog(this, "Hay " + cola.sinGuardar() + " cambios que no se "
+                    + "pudieron guardar en Google Sheets. ¿Cerrar de todos modos?", "Cambios sin guardar",
+                    JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                if (r != JOptionPane.YES_OPTION) {
+                    return;
+                }
+            }
+        }
+        dispose();
+    }
+
+    // ------------------------------------------------------------------ state after each change
+
+    /** The model changed (do / undo / redo / load): tables, filters, row heights, marks in Boletín forms. */
+    private void refrescar() {
+        modeloT.avisarCambio();
+        modeloV.avisarCambio();
+        refsT = modeloT.referencias();
+        refsV = modeloV.referencias();
+        filtros.datosActualizados();
+        actualizarTitulosTabs();   // also refreshes the row numbers and row heights
+        actualizarBotonesHistorial();
+        remates.refrescarMarcas();
+    }
+
+    private void actualizarBotonesHistorial() {
+        boolean d = historial != null && historial.puedeDeshacer();
+        boolean r = historial != null && historial.puedeRehacer();
+        btnDeshacer.setEnabled(d);
+        btnRehacer.setEnabled(r);
+        btnDeshacer.setToolTipText(d ? "Deshacer: " + historial.proximoDeshacer() + " (Ctrl+Z)" : "Deshacer (Ctrl+Z)");
+        btnRehacer.setToolTipText(r ? "Rehacer: " + historial.proximoRehacer() + " (Ctrl+Y)" : "Rehacer (Ctrl+Y)");
+    }
+
+    private void actualizarGuardado() {
+        if (cola == null) {
+            return;
+        }
+        int n = cola.sinGuardar();
+        switch (cola.estado()) {
+            case GUARDADO -> {
+                lblGuardado.setText("Guardado ✓");
+                lblGuardado.setForeground(new Color(0x2E, 0x7D, 0x32));
+            }
+            case ESPERANDO -> {
+                lblGuardado.setText("Cambios por guardar…");
+                lblGuardado.setForeground(Color.DARK_GRAY);
+            }
+            case GUARDANDO -> {
+                lblGuardado.setText("Guardando…");
+                lblGuardado.setForeground(Color.DARK_GRAY);
+            }
+            case ERROR -> {
+                lblGuardado.setText(n + (n == 1 ? " cambio sin guardar" : " cambios sin guardar"));
+                lblGuardado.setForeground(new Color(0xB0, 0x20, 0x20));
+            }
+        }
+        lblGuardado.setToolTipText(cola.ultimoError());
+        btnReintentar.setVisible(cola.estado() == ColaGuardado.Estado.ERROR);
+        tablaT.repaint();
+        tablaV.repaint();
+    }
+
+    // ------------------------------------------------------------------ actions
+
+    private void deshacer() {
+        if (historial != null && !tablaActual().isEditing()) {
+            historial.deshacer();
+        }
+    }
+
+    private void rehacer() {
+        if (historial != null && !tablaActual().isEditing()) {
+            historial.rehacer();
+        }
+    }
+
+    /** Selected cells of the visible tab (full rows when selected with the row numbers). */
+    private List<Cambios.Celda> seleccion() {
+        JTable t = tablaActual();
+        HojaSincronizada hoja = modeloActual().hoja;
+        List<Cambios.Celda> celdas = new ArrayList<>();
+        if (hoja == null) {
+            return celdas;
+        }
+        for (int filaVista : t.getSelectedRows()) {
+            FilaSincronizada fila = hoja.filas().get(t.convertRowIndexToModel(filaVista));
+            for (int colVista : t.getSelectedColumns()) {
+                celdas.add(new Cambios.Celda(fila, t.convertColumnIndexToModel(colVista)));
+            }
+        }
+        return celdas;
+    }
+
+    private void formatear(UnaryOperator<Formato> cambio, String descripcion) {
+        List<Cambios.Celda> celdas = seleccion();
+        if (celdas.isEmpty()) {
+            lblEstado.setText("Seleccione celdas, o filas completas con el número de fila, para darles formato.");
+            return;
+        }
+        historial.hacer(new Cambios.FormatearCeldas(modeloActual().hoja, celdas, cambio, descripcion));
+    }
+
+    /** Bold / italic / ...: on when not every selected cell has it, off otherwise. */
+    private void alternar(java.util.function.Predicate<Formato> tiene,
+                          java.util.function.BiFunction<Formato, Boolean, Formato> poner, String descripcion) {
+        boolean todas = !seleccion().isEmpty() && seleccion().stream().allMatch(c -> tiene.test(c.celda().getFormato()));
+        formatear(f -> poner.apply(f, !todas), descripcion);
+    }
+
+    private void elegirColor(String titulo, java.util.function.BiFunction<Formato, Color, Formato> poner,
+                             String descripcion) {
+        if (seleccion().isEmpty()) {
+            formatear(f -> f, descripcion);   // shows the "select cells" hint
+            return;
+        }
+        Color c = JColorChooser.showDialog(this, titulo, Color.WHITE);
+        if (c != null) {
+            formatear(f -> poner.apply(f, c), descripcion);
+        }
+    }
+
+    private void eliminarFilas() {
+        JTable t = tablaActual();
+        HojaSincronizada hoja = modeloActual().hoja;
+        if (hoja == null || t.isEditing() || t.getSelectedRowCount() == 0) {
+            return;
+        }
+        List<FilaSincronizada> filas = new ArrayList<>();
+        for (int filaVista : t.getSelectedRows()) {
+            filas.add(hoja.filas().get(t.convertRowIndexToModel(filaVista)));
+        }
+        historial.hacer(new Cambios.EliminarFilas(hoja, filas));
+        t.clearSelection();
+        cabecera(t).clearSelection();
+        lblEstado.setText(filas.size() == 1 ? "Fila eliminada (Ctrl+Z para deshacer)."
+            : filas.size() + " filas eliminadas (Ctrl+Z para deshacer).");
+    }
+
+    // ------------------------------------------------------------------ from Boletín forms
+
+    /**
+     * Adds a Boletín row to the same tab (after loading, if still loading). If its Referencia N° is already there,
+     * shows both rows with the differences and asks whether to replace the values.
+     */
+    void agregarDesdeBoletin(String tipo, Object[] valores) {
+        if (!cargado) {
+            alCargar.add(() -> agregarDesdeBoletin(tipo, valores));
+            return;
+        }
+        boolean terrenos = TIPO_T.equals(tipo);
+        tabs.setSelectedIndex(terrenos ? 0 : 1);
+        ModeloHoja modelo = terrenos ? modeloT : modeloV;
+        HojaSincronizada hoja = modelo.hoja;
+        int colRef = hoja.columnaReferencia();
+        String ref = HojaSincronizada.clave(valores[colRef]);
+        int existente = hoja.indiceDeReferencia(ref);
+        Remates.activar(this);
+        if (existente < 0) {
+            FilaSincronizada fila = FilaSincronizada.deValores(valores);
+            historial.hacer(new Cambios.AgregarFila(hoja, fila));
+            seleccionar(fila);
+            lblEstado.setText("Agregada la referencia " + (ref == null ? "(sin referencia)" : ref) + ".");
+            return;
+        }
+        FilaSincronizada fila = hoja.filas().get(existente);
+        seleccionar(fila);
+        if (DialogoDiferencias.preguntar(this, hoja.columnas(), valores, fila.valores(), ref)) {
+            historial.hacer(new Cambios.ReemplazarValores(hoja, fila, valores));
+            lblEstado.setText("Valores de la referencia " + ref + " reemplazados.");
+        }
+    }
+
+    boolean contieneReferencia(String tipo, Object referencia) {
+        String ref = HojaSincronizada.clave(referencia);
+        return ref != null && (TIPO_T.equals(tipo) ? refsT : refsV).contains(ref);
+    }
+
+    private void seleccionar(FilaSincronizada fila) {
+        JTable t = tablaActual();
+        HojaSincronizada hoja = modeloActual().hoja;
+        int vista = t.convertRowIndexToView(hoja.indiceDe(fila));
+        if (vista >= 0) {
+            t.setRowSelectionInterval(vista, vista);
+            t.setColumnSelectionInterval(0, t.getColumnCount() - 1);
+            t.scrollRectToVisible(t.getCellRect(vista, 0, true));
+        }
+    }
+
+    // ------------------------------------------------------------------ table model over the sheet
+
+    /** The sheet's rows as a table: editing a cell goes through the undo history and is saved. */
+    private final class ModeloHoja extends AbstractTableModel {
+        private final List<String> columnas;
+        private HojaSincronizada hoja;
+        private int filasAvisadas;
+
+        ModeloHoja(List<String> columnas) {
+            this.columnas = columnas;
+        }
+
+        void setHoja(HojaSincronizada hoja) {
+            this.hoja = hoja;
+            filasAvisadas = -1;
+        }
+
+        /** Rows added or removed → full refresh; otherwise only repaint (keeps the selection). */
+        void avisarCambio() {
+            int n = getRowCount();
+            if (n != filasAvisadas) {
+                filasAvisadas = n;
+                fireTableDataChanged();
+            } else if (n > 0) {
+                fireTableRowsUpdated(0, n - 1);
+            }
+        }
+
+        Set<String> referencias() {
+            return hoja == null ? Set.of() : new HashSet<>(hoja.referencias());
+        }
+
+        Formato estilo(int fila, int columna) {
+            if (hoja == null || fila >= hoja.filas().size()) {
+                return null;
+            }
+            CeldaSincronizada c = hoja.filas().get(fila).celda(columna);
+            return c.isSinGuardar() ? c.getFormato().conFondo(TablasRemates.ROJO_SIN_GUARDAR) : c.getFormato();
+        }
+
+        @Override
+        public int getRowCount() {
+            return hoja == null ? 0 : hoja.filas().size();
+        }
+
+        @Override
+        public int getColumnCount() {
+            return columnas.size();
+        }
+
+        @Override
+        public String getColumnName(int c) {
+            return columnas.get(c);
+        }
+
+        @Override
+        public Object getValueAt(int r, int c) {
+            return hoja.filas().get(r).celda(c).getValor();
+        }
+
+        @Override
+        public boolean isCellEditable(int r, int c) {
+            return hoja != null && cargado;
+        }
+
+        @Override
+        public void setValueAt(Object valor, int r, int c) {
+            if (hoja == null || Objects.equals(valor, getValueAt(r, c))) {
+                return;
+            }
+            historial.hacer(new Cambios.EditarCelda(hoja, hoja.filas().get(r), c, valor));
+        }
+    }
+
+    // ------------------------------------------------------------------ cell editor with validation
+
+    /** Amounts accept 20.000.000 / 20,000,000.00 (saved as numbers); dates must be dd/mm/aaaa; empty = "No indicado". */
+    private static final class EditorCelda extends DefaultCellEditor {
+        private final JTextField campo;
+        private final String columna;
+        private Object valor;
+
+        EditorCelda(String columna) {
+            super(new JTextField());
+            this.campo = (JTextField) getComponent();
+            this.columna = columna;
+            setClickCountToStart(2);
+        }
+
+        @Override
+        public Component getTableCellEditorComponent(JTable t, Object v, boolean sel, int r, int c) {
+            campo.setBorder(BorderFactory.createLineBorder(Color.GRAY));
+            campo.setText(ColumnasRemate.NO_INDICADO.equals(v) || v == null ? "" : ColumnasRemate.textoCelda(v));
+            campo.setToolTipText(ayuda());
+            return campo;
+        }
+
+        private String ayuda() {
+            if (ColumnasRemate.NUM_COLS.contains(columna)) {
+                return "Número, por ejemplo 20.000.000 o 20,000,000.00";
+            }
+            return ColumnasRemate.FECHA_COLS.contains(columna) ? "Fecha dd/mm/aaaa" : null;
+        }
+
+        @Override
+        public boolean stopCellEditing() {
+            String t = campo.getText().strip();
+            if (t.isEmpty()) {
+                valor = ColumnasRemate.ESTADO.equals(columna) ? "" : ColumnasRemate.NO_INDICADO;
+            } else if (ColumnasRemate.NUM_COLS.contains(columna)) {
+                Double d = FiltroTexto.parseNumero(t);
+                if (d == null) {
+                    return rechazar();
+                }
+                valor = d;
+            } else if (ColumnasRemate.FECHA_COLS.contains(columna)) {
+                java.time.LocalDate f = FiltroTexto.parseFecha(t);
+                if (f == null) {
+                    return rechazar();
+                }
+                valor = f.format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/uuuu"));
+            } else {
+                valor = t;
+            }
+            return super.stopCellEditing();
+        }
+
+        private boolean rechazar() {
+            campo.setBorder(BorderFactory.createLineBorder(new Color(0xC0, 0x30, 0x30), 2));
+            return false;
+        }
+
+        @Override
+        public Object getCellEditorValue() {
+            return valor;
+        }
+    }
+}

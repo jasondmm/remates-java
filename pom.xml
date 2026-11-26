@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>remates</groupId>
+    <artifactId>remates</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <name>Remates</name>
+    <description>Lectura, interpretación y almacenamiento de remates del Boletín Judicial</description>
+
+    <properties>
+        <maven.compiler.release>21</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <!-- Google Sheets API client; the service revision is built against this google-api-client version -->
+        <!-- oauth-client-jetty matches the google-oauth-client version that google-api-client brings in -->
+        <google-api-client.version>2.9.2</google-api-client.version>
+        <google-sheets.version>v4-rev20261019-2.9.2</google-sheets.version>
+        <google-oauth-client.version>1.36.0</google-oauth-client.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.google.api-client</groupId>
+            <artifactId>google-api-client</artifactId>
+            <version>${google-api-client.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.apis</groupId>
+            <artifactId>google-api-services-sheets</artifactId>
+            <version>${google-sheets.version}</version>
+        </dependency>
+        <!-- desktop sign-in: opens the browser and receives the authorization on a local port -->
+        <dependency>
+            <groupId>com.google.oauth-client</groupId>
+            <artifactId>google-oauth-client-jetty</artifactId>
+            <version>${google-oauth-client.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <resources>
+            <!-- only the application icon goes on the classpath; boletines and scripts stay in resources/ -->
+            <resource>
+                <directory>resources</directory>
+                <includes>
+                    <include>icon.svg</include>
+                </includes>
+            </resource>
+        </resources>
+    </build>
+</project>
