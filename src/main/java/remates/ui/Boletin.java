@@ -41,7 +41,7 @@ import remates.sincronizados.HojaSincronizada;
 
 /**
  * "Boletín" form: paste the text of a Boletín Judicial edict, press Procesar and the auctions are listed
- * in two tables (terrenos / vehículos) with the same columns as the Excel produced by the Python scripts.
+ * in two tables (terrenos / vehículos) with the columns of {@link ColumnasRemate}.
  * It is a child window of the {@link Remates} MDI window; several can be open at once.
  */
 public class Boletin extends JInternalFrame {

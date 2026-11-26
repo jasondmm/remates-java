@@ -11,8 +11,8 @@ import remates.model.Terreno;
 import remates.model.Vehiculo;
 
 /**
- * Column layout of the two result lists. Same headers, order, widths and "No indicado" filler as the
- * Excel sheets produced by {@code procesar_boletin.py} ("Terrenos" / "Vehiculos").
+ * Column layout of the two result lists. Headers, order, widths and the "No indicado" filler
+ * of the "Terrenos" / "Vehiculos" lists.
  */
 public final class ColumnasRemate {
     private ColumnasRemate() {
@@ -20,7 +20,7 @@ public final class ColumnasRemate {
 
     public static final String NO_INDICADO = "No indicado";
 
-    /** Tab names: the Excel sheets of {@code procesar_boletin.py}, the Google Sheets tabs and the app's tabs. */
+    /** Tab names: the Google Sheets tabs and the app's tabs. */
     public static final String HOJA_TERRENOS = "Terrenos";
     public static final String HOJA_VEHICULOS = "Vehiculos";
 

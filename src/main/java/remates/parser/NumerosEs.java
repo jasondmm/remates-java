@@ -1,6 +1,6 @@
 package remates.parser;
 
-import static remates.parser.Py.*;
+import static remates.parser.Cadenas.*;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -14,9 +14,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Port of {@code es_numbers.py}: Spanish number words, amounts and areas.
- * The display formatters that only produced unused fields ({@code parse_amount}, {@code parse_area})
- * were not ported; their numeric counterparts are what the Excel columns use.
+ * Spanish number words, amounts and areas.
  */
 public final class NumerosEs {
     private NumerosEs() {
@@ -57,7 +55,7 @@ public final class NumerosEs {
         }
     }
 
-    /** Alternation of words, longest first (same order as Python's stable {@code sorted(..., reverse=True)}). */
+    /** Alternation of words, longest first (ties keep their original order). */
     static String alternation(List<String> words) {
         List<String> sorted = new ArrayList<>(words);
         sorted.sort(Comparator.comparingInt(String::length).reversed());

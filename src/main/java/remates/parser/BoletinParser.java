@@ -1,6 +1,6 @@
 package remates.parser;
 
-import static remates.parser.Py.*;
+import static remates.parser.Cadenas.*;
 
 import java.text.Normalizer;
 import java.util.ArrayList;
@@ -20,12 +20,9 @@ import remates.model.Terreno;
 import remates.model.Vehiculo;
 
 /**
- * Port of {@code parse_full3.py}: reads the text of a Boletín Judicial and extracts every
+ * Reads the text of a Boletín Judicial and extracts every
  * land (finca) and vehicle auction. Each edict is one line containing "sáquese a remate"
  * (or "sáquese en remate"); its "Referencia N°" appears in one of the next lines.
- *
- * <p>The regular expressions and the order of the fallbacks are kept identical to the Python
- * script on purpose, so both produce the same results. Change them here as you would there.
  */
 public final class BoletinParser {
 
@@ -76,7 +73,7 @@ public final class BoletinParser {
 
     /**
      * Boletín number from the first {@value #LINEAS_NUMERO} lines ("Publicada en Boletín número 225",
-     * "Boletín Judicial N° 225"), or null. Port of {@code procesar_boletin.numero_boletin}.
+     * "Boletín Judicial N° 225"), or null.
      */
     public static String detectarNumero(String text) {
         String[] lines = text.split("\n", LINEAS_NUMERO + 1);
@@ -330,7 +327,8 @@ public final class BoletinParser {
                 end2 = m3.start();
             } else {
                 Matcher f = search(FIN_RE, sub, m2.end());
-                // Same arithmetic as the Python script (f.start() is already absolute there too).
+                // f.start() is already absolute, so this double offset reaches further than intended; kept on purpose
+                // because the extracted rows depend on it.
                 end2 = f != null ? m2.end() + f.start() : m2.end() + 500;
             }
             String seg2 = slice(sub, m2.start(), end2);
