@@ -51,7 +51,7 @@ public class Remates extends JFrame {
         setExtendedState(getExtendedState() | MAXIMIZED_BOTH);   // always opens maximized
     }
 
-    /** Opens a new Boletin child window (the first one maximized) and gives it the focus. */
+    /** Opens a new Boletin child window at its normal size (cascaded) and gives it the focus. */
     public Boletin abrirBoletin() {
         Boletin b = new Boletin();
         b.setRemates(this);
@@ -64,10 +64,7 @@ public class Remates extends JFrame {
         escritorio.add(b);
         b.setVisible(true);
         try {
-            if (escritorio.getAllFrames().length == 1) {
-                b.setMaximum(true);
-            }
-            b.setSelected(true);
+            b.setSelected(true);   // normal size (not maximized); the user can maximize it
         } catch (PropertyVetoException ignored) {
             // the frame refused; it stays as it is
         }
@@ -89,19 +86,34 @@ public class Remates extends JFrame {
             activar(sincronizados);
             return sincronizados;
         }
+        return crearSincronizados(true);
+    }
+
+    private RematesSincronizados crearSincronizados(boolean alFrente) {
         RematesSincronizados s = new RematesSincronizados(this, configuracionSheets, conectorSheets);
         sincronizados = s;
         s.setLocation(28 * escritorio.getAllFrames().length, 28 * escritorio.getAllFrames().length);
         escritorio.add(s);
         s.setVisible(true);
-        activar(s);
+        if (alFrente) {
+            activar(s);
+        } else {
+            escritorio.moveToBack(s);
+        }
         s.iniciar();
         return s;
     }
 
-    /** Adds a Boletín row to the same tab of "Remates sincronizados" (opening and loading it if needed). */
-    void agregarASincronizados(String tipo, Object[] valores) {
-        abrirSincronizados().agregarDesdeBoletin(tipo, valores);
+    /**
+     * Adds a Boletín row to the same tab of "Remates sincronizados" without bringing it to the front: the Boletín
+     * keeps the focus. When sincronizados is closed it is opened (and loaded) behind the Boletín.
+     */
+    void agregarASincronizados(Boletin origen, String tipo, Object[] valores) {
+        RematesSincronizados s = sincronizados != null ? sincronizados : crearSincronizados(false);
+        if (origen != null && origen.isVisible() && sincronizados == s) {
+            activar(origen);   // also after a credentials dialog of a newly opened sincronizados
+        }
+        s.agregarDesdeBoletin(tipo, valores);
     }
 
     /** True when "Remates sincronizados" is open and has a row with this Referencia N° in that tab. */

@@ -62,9 +62,14 @@ public final class IconoApp {
 
     /** The icon rendered at the usual window/taskbar sizes. */
     public static List<Image> imagenes() throws IOException {
+        return imagenes(SIZES);
+    }
+
+    /** The icon rendered at the given sizes (square, transparent background). */
+    public static List<Image> imagenes(int[] tamanos) throws IOException {
         Svg svg = parse(leerSvg());
         List<Image> images = new ArrayList<>();
-        for (int size : SIZES) {
+        for (int size : tamanos) {
             images.add(render(svg, size));
         }
         return images;

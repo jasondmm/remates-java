@@ -36,6 +36,11 @@ public final class TablasRemates {
     /** Cells whose last change could not be saved to Google Sheets. */
     public static final Color ROJO_SIN_GUARDAR = new Color(0xF8, 0xD7, 0xDA);
     private static final int ALTO_FILA = 22;
+    /** Row and column of the selected cell (crosshair): tint mixed into each cell's own background. */
+    static final Color CRUZ = new Color(0x9C, 0xC3, 0xEE);
+    private static final float MEZCLA_CRUZ = 0.35f;
+    /** Header of the selected cell's column. */
+    static final Color HEADER_FILL_ACTIVO = new Color(0x3A, 0x7C, 0xBF);
 
     /** Formatting of a cell by model position; null = plain. */
     @FunctionalInterface
@@ -62,8 +67,16 @@ public final class TablasRemates {
         tabla.setRowSorter(new OrdenadorRemates(modelo)); // sorts by value (numbers, dates) + filtering (PanelFiltros)
         tabla.getTableHeader().setReorderingAllowed(false);
 
-        DefaultTableCellRenderer header = new DefaultTableCellRenderer();
-        header.setBackground(HEADER_FILL);
+        DefaultTableCellRenderer header = new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable t, Object value, boolean selected, boolean focus,
+                                                           int row, int col) {
+                super.getTableCellRendererComponent(t, value, selected, focus, row, col);
+                setBackground(t != null && col == columnaActiva(t) ? HEADER_FILL_ACTIVO : HEADER_FILL);
+                return this;
+            }
+        };
+        header.setOpaque(true);
         header.setForeground(Color.WHITE);
         header.setFont(header.getFont().deriveFont(Font.BOLD));
         header.setHorizontalAlignment(SwingConstants.CENTER);
@@ -78,7 +91,11 @@ public final class TablasRemates {
                     : estilo.de(t.convertRowIndexToModel(row), t.convertColumnIndexToModel(col));
                 setFont(fuente(t.getFont(), f));
                 if (!selected) {
-                    setBackground(f != null && f.fondo() != null ? f.fondo() : t.getBackground());
+                    Color fondo = f != null && f.fondo() != null ? f.fondo() : t.getBackground();
+                    if (row == filaActiva(t) || col == columnaActiva(t)) {
+                        fondo = mezclar(fondo, CRUZ, MEZCLA_CRUZ);   // crosshair of the selected cell
+                    }
+                    setBackground(fondo);
                     setForeground(f != null && f.fuente() != null ? f.fuente() : t.getForeground());
                 }
                 setHorizontalAlignment(alineacion(f, value, t.getColumnName(col)));
@@ -94,7 +111,57 @@ public final class TablasRemates {
             col.setCellRenderer(celda);
             col.setPreferredWidth(widths[i] * 7 + 10); // Excel character width -> pixels
         }
+        resaltarCruz(tabla);
         return tabla;
+    }
+
+    /**
+     * Repaints the whole table (and its header) when the selected cell moves, so the crosshair follows it: the
+     * default repaints only the cells whose selection changed.
+     */
+    static void resaltarCruz(JTable tabla) {
+        int[] ultima = {-2, -2};
+        Runnable alMover = () -> {
+            int f = filaActiva(tabla);
+            int c = columnaActiva(tabla);
+            if (f != ultima[0] || c != ultima[1]) {
+                ultima[0] = f;
+                ultima[1] = c;
+                tabla.repaint();
+                if (tabla.getTableHeader() != null) {
+                    tabla.getTableHeader().repaint();
+                }
+            }
+        };
+        tabla.getSelectionModel().addListSelectionListener(e -> alMover.run());
+        tabla.getColumnModel().getSelectionModel().addListSelectionListener(e -> alMover.run());
+        tabla.getModel().addTableModelListener(e -> alMover.run());
+    }
+
+    /** View row of the selected (lead) cell, or -1 when nothing is selected. */
+    static int filaActiva(JTable t) {
+        if (t.getSelectedRowCount() == 0 || t.getSelectedColumnCount() == 0) {
+            return -1;
+        }
+        int f = t.getSelectionModel().getLeadSelectionIndex();
+        return f >= 0 && f < t.getRowCount() && t.isRowSelected(f) ? f : -1;
+    }
+
+    /** View column of the selected (lead) cell, or -1 when nothing is selected. */
+    static int columnaActiva(JTable t) {
+        if (filaActiva(t) < 0 || t.getSelectedColumnCount() == t.getColumnCount()) {
+            return -1;   // nothing selected, or full rows (row numbers): no column to mark
+        }
+        int c = t.getColumnModel().getSelectionModel().getLeadSelectionIndex();
+        return c >= 0 && c < t.getColumnCount() && t.isColumnSelected(c) ? c : -1;
+    }
+
+    /** {@code base} with {@code peso} (0..1) of {@code tinte}. */
+    static Color mezclar(Color base, Color tinte, float peso) {
+        return new Color(
+            Math.round(base.getRed() * (1 - peso) + tinte.getRed() * peso),
+            Math.round(base.getGreen() * (1 - peso) + tinte.getGreen() * peso),
+            Math.round(base.getBlue() * (1 - peso) + tinte.getBlue() * peso));
     }
 
     /** The table font with a cell's size (Sheets points, 10 = normal), bold, italic, underline and strikethrough. */

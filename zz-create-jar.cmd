@@ -1,0 +1,1 @@
+.\mvnw.cmd -q -B package

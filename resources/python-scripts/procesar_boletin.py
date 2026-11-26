@@ -91,16 +91,29 @@ def build_workbook(data, boletin_num, out_path):
     return out_path
 
 
+# Lineas iniciales donde se busca el numero de boletin: el texto copiado de la pagina web empieza con lineas
+# de navegacion ("Volver a la pagina principal", "Resultado Siguiente >") antes del encabezado.
+LINEAS_NUMERO = 20
+PATRONES_NUMERO = (r'n[uú]mero\s*(\d+)', r'bolet[ií]n\s+judicial\s+n\s*[°º]\s*(\d+)')
+
+
+def numero_boletin(head_lines):
+    """Numero del boletin ("Publicada en Boletin numero 225", "Boletin Judicial N° 225") o None."""
+    for line in head_lines[:LINEAS_NUMERO]:
+        for patron in PATRONES_NUMERO:
+            m = re.search(patron, line, re.IGNORECASE)
+            if m:
+                return m.group(1)
+    return None
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__); sys.exit(1)
     path = sys.argv[1]
     with open(path, encoding='utf-8') as f:
-        head_lines = [f.readline() for _ in range(3)]
-    num = os.path.splitext(os.path.basename(path))[0]
-    for line in head_lines:
-        m = re.search(r'n[uú]mero\s*(\d+)', line, re.IGNORECASE)
-        if m: num = m.group(1); break
+        head_lines = [f.readline() for _ in range(LINEAS_NUMERO)]
+    num = numero_boletin(head_lines) or os.path.splitext(os.path.basename(path))[0]
     out = sys.argv[2] if len(sys.argv) > 2 else f'Remates_Boletin_{num}.xlsx'
     # Si la salida no indica carpeta, se guarda en rem/Excel/
     if not os.path.dirname(out):

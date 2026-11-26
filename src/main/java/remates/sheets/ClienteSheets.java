@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.security.GeneralSecurityException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -14,7 +13,6 @@ import com.google.api.client.extensions.java6.auth.oauth2.AuthorizationCodeInsta
 import com.google.api.client.extensions.jetty.auth.oauth2.LocalServerReceiver;
 import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeFlow;
 import com.google.api.client.googleapis.auth.oauth2.GoogleClientSecrets;
-import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
 import com.google.api.client.googleapis.json.GoogleJsonResponseException;
 import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.json.JsonFactory;
@@ -63,8 +61,10 @@ public final class ClienteSheets implements FuenteSheets {
      * Signs in (opening the browser the first time; this call waits until the user approves) and returns a client
      * for the configured spreadsheet.
      */
-    public static ClienteSheets conectar(ConfiguracionSheets cfg) throws IOException, GeneralSecurityException {
-        NetHttpTransport transporte = GoogleNetHttpTransport.newTrustedTransport();
+    public static ClienteSheets conectar(ConfiguracionSheets cfg) throws IOException {
+        // HTTPS with the JDK's trusted certificates (Google deprecated its own bundled certificate store,
+        // GoogleNetHttpTransport.newTrustedTransport / GoogleUtils.getCertificateTrustStore)
+        NetHttpTransport transporte = new NetHttpTransport();
         GoogleClientSecrets secretos;
         try (Reader r = Files.newBufferedReader(cfg.credenciales(), StandardCharsets.UTF_8)) {
             secretos = GoogleClientSecrets.load(JSON, r);

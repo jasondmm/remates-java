@@ -1,0 +1,1 @@
+for /f "delims=" %%c in (target\classpath.txt) do %USERPROFILE%\java-runtime\bin\java.exe -cp "target\classes;%%c" Main

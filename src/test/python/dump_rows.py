@@ -24,14 +24,8 @@ from parse_full3 import process_file  # noqa: E402
 def numero_boletin(path):
     """Same logic as procesar_boletin.main()."""
     with open(path, encoding='utf-8') as f:
-        head_lines = [f.readline() for _ in range(3)]
-    num = os.path.splitext(os.path.basename(path))[0]
-    for line in head_lines:
-        m = re.search(r'n[uú]mero\s*(\d+)', line, re.IGNORECASE)
-        if m:
-            num = m.group(1)
-            break
-    return num
+        head_lines = [f.readline() for _ in range(pb.LINEAS_NUMERO)]
+    return pb.numero_boletin(head_lines) or os.path.splitext(os.path.basename(path))[0]
 
 
 def nombres_hojas():

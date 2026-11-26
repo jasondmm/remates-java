@@ -67,15 +67,25 @@ public final class BoletinParser {
         return new ResultadoBoletin(detectarNumero(text), fincas, vehs);
     }
 
-    private static final Pattern NUMERO_BOLETIN = rei("n[uú]mero\\s*(\\d+)");
+    /** Lines searched for the number: text copied from the web page starts with navigation lines. */
+    private static final int LINEAS_NUMERO = 20;
+    private static final Pattern[] NUMERO_BOLETIN = {
+        rei("n[uú]mero\\s*(\\d+)"),
+        rei("bolet[ií]n\\s+judicial\\s+n\\s*[°º]\\s*(\\d+)"),
+    };
 
-    /** Boletín number from the first three lines ("... número 123"), or null (as {@code procesar_boletin.py}). */
+    /**
+     * Boletín number from the first {@value #LINEAS_NUMERO} lines ("Publicada en Boletín número 225",
+     * "Boletín Judicial N° 225"), or null. Port of {@code procesar_boletin.numero_boletin}.
+     */
     public static String detectarNumero(String text) {
-        String[] lines = text.split("\n", 4);
-        for (int i = 0; i < Math.min(3, lines.length); i++) {
-            Matcher m = search(NUMERO_BOLETIN, lines[i]);
-            if (m != null) {
-                return m.group(1);
+        String[] lines = text.split("\n", LINEAS_NUMERO + 1);
+        for (int i = 0; i < Math.min(LINEAS_NUMERO, lines.length); i++) {
+            for (Pattern p : NUMERO_BOLETIN) {
+                Matcher m = search(p, lines[i]);
+                if (m != null) {
+                    return m.group(1);
+                }
             }
         }
         return null;

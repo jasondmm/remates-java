@@ -7,12 +7,17 @@ import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.concurrent.ExecutionException;
 
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JComponent;
+import javax.swing.JFileChooser;
 import javax.swing.JInternalFrame;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
@@ -22,13 +27,11 @@ import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.JTextArea;
-import javax.swing.JTextField;
 import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.WindowConstants;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.DefaultTableModel;
 
 import remates.model.ResultadoBoletin;
@@ -46,11 +49,17 @@ public class Boletin extends JInternalFrame {
     private final BoletinParser parser = new BoletinParser();
 
     private final JTextArea txtEdicto = new JTextArea();
-    private final JTextField txtNumeroBoletin = new JTextField(10);
+    private final BuscadorTexto buscador = new BuscadorTexto(txtEdicto);
+    /** Number of the processed boletín (from the text), "" when unknown. */
+    private String numeroBoletin = "";
     private final JButton btnProcesar = new JButton("Procesar");
     private final JButton btnLimpiar = new JButton("Limpiar");
     private final JButton btnCopiar = new JButton("Copiar tabla");
-    private final JLabel lblEstado = new JLabel("Pegue el texto del boletín y presione Procesar (Ctrl+Enter).");
+    private final JButton btnAbrir = new JButton("Abrir archivo…");
+    /** Last folder used in "Abrir archivo…", shared by every Boletín window of the session. */
+    private static File ultimaCarpeta;
+    private final JLabel lblEstado = new JLabel(
+        "Pegue el texto del boletín o ábralo desde un archivo (Ctrl+O), y presione Procesar (Ctrl+Enter).");
     private final JTabbedPane tabs = new JTabbedPane();
     private final DefaultTableModel modeloTerrenos = TablasRemates.crearModelo(ColumnasRemate.TERRENOS_HEADERS);
     private final DefaultTableModel modeloVehiculos = TablasRemates.crearModelo(ColumnasRemate.VEH_HEADERS);
@@ -97,39 +106,25 @@ public class Boletin extends JInternalFrame {
         entrada.add(new JScrollPane(txtEdicto), BorderLayout.CENTER);
 
         JPanel acciones = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        acciones.add(new JLabel("Número de boletín:"));
-        acciones.add(txtNumeroBoletin);
+        acciones.add(buscador);
         acciones.add(btnProcesar);
         acciones.add(btnLimpiar);
         acciones.add(btnCopiar);
+        acciones.add(btnAbrir);
         entrada.add(acciones, BorderLayout.SOUTH);
 
+        btnAbrir.setToolTipText("Carga el texto de un boletín desde un archivo .txt (Ctrl+O)");
+        btnAbrir.addActionListener(e -> abrirArchivo());
         btnProcesar.addActionListener(e -> procesar());
         btnLimpiar.addActionListener(e -> limpiar());
         btnCopiar.addActionListener(e -> copiarTablaActual());
-        txtNumeroBoletin.getDocument().addDocumentListener(new DocumentListener() {
-            @Override
-            public void insertUpdate(DocumentEvent e) {
-                llenarTablas();
-            }
-
-            @Override
-            public void removeUpdate(DocumentEvent e) {
-                llenarTablas();
-            }
-
-            @Override
-            public void changedUpdate(DocumentEvent e) {
-                llenarTablas();
-            }
-        });
 
         tablaTerrenos.setName("Terrenos");
         tablaVehiculos.setName("Vehículos");
         agregarConDobleClic(tablaTerrenos, TIPO_TERRENOS);
         agregarConDobleClic(tablaVehiculos, TIPO_VEHICULOS);
-        tabs.addTab("", new JScrollPane(tablaTerrenos));
-        tabs.addTab("", new JScrollPane(tablaVehiculos));
+        tabs.addTab("", new NumerosFila(tablaTerrenos).scroll());   // "#" row numbers, click = full row
+        tabs.addTab("", new NumerosFila(tablaVehiculos).scroll());
         filtros.registrar(tablaTerrenos);
         filtros.registrar(tablaVehiculos);
         tabs.addChangeListener(e -> filtros.tablaVisibleCambio()); // filters follow the visible tab
@@ -154,6 +149,22 @@ public class Boletin extends JInternalFrame {
             @Override
             public void actionPerformed(java.awt.event.ActionEvent e) {
                 filtros.abrirYEnfocarBusqueda();
+            }
+        });
+        root.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT)
+            .put(KeyStroke.getKeyStroke(KeyEvent.VK_B, InputEvent.CTRL_DOWN_MASK), "buscarTexto");
+        root.getActionMap().put("buscarTexto", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                buscador.enfocar();
+            }
+        });
+        root.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT)
+            .put(KeyStroke.getKeyStroke(KeyEvent.VK_O, InputEvent.CTRL_DOWN_MASK), "abrir");
+        root.getActionMap().put("abrir", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                abrirArchivo();
             }
         });
         return root;
@@ -183,7 +194,7 @@ public class Boletin extends JInternalFrame {
             protected void done() {
                 btnProcesar.setEnabled(true);
                 try {
-                    mostrar(get());
+                    mostrar(get(), texto);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 } catch (ExecutionException e) {
@@ -195,16 +206,13 @@ public class Boletin extends JInternalFrame {
         }.execute();
     }
 
-    private void mostrar(ResultadoBoletin r) {
+    private void mostrar(ResultadoBoletin r, String texto) {
         resultado = r;
-        if (txtNumeroBoletin.getText().isBlank() && r.numeroBoletin() != null) {
-            txtNumeroBoletin.setText(r.numeroBoletin()); // fires llenarTablas()
-        } else {
-            llenarTablas();
-        }
+        numeroBoletin = r.numeroBoletin() == null ? "" : r.numeroBoletin().strip();
+        llenarTablas();
         String estado = r.terrenos().size() + " terrenos, " + r.vehiculos().size() + " vehículos";
-        if (txtNumeroBoletin.getText().isBlank()) {
-            estado += ". No se encontró el número de boletín en el texto; puede escribirlo arriba.";
+        if (numeroBoletin.isEmpty()) {
+            estado += ". No se encontró el número de boletín en el texto";
         }
         lblEstado.setText(estado);
         if (r.terrenos().isEmpty() && !r.vehiculos().isEmpty()) {
@@ -212,13 +220,73 @@ public class Boletin extends JInternalFrame {
         } else {
             tabs.setSelectedIndex(0);
         }
+        guardarProcesado(texto, estado);
+    }
+
+    // ------------------------------------------------------------------ text files
+
+    /** Saves the processed text in Documents\Remates\Procesados (in the background) and reports it. */
+    private void guardarProcesado(String texto, String estado) {
+        String numero = numeroBoletin;
+        Path carpeta = ArchivosTexto.carpetaProcesados();
+        new SwingWorker<ArchivosTexto.Guardado, Void>() {
+            @Override
+            protected ArchivosTexto.Guardado doInBackground() throws IOException {
+                return ArchivosTexto.guardarProcesado(texto, numero, carpeta);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    ArchivosTexto.Guardado g = get();
+                    lblEstado.setText(estado + (g.nuevo() ? ". Texto guardado en " : ". El texto ya estaba guardado en ")
+                        + g.archivo());
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } catch (ExecutionException e) {
+                    lblEstado.setText(estado + ". No se pudo guardar el texto en " + carpeta + ": "
+                        + e.getCause().getMessage());
+                }
+            }
+        }.execute();
+    }
+
+    /** Loads a .txt file into the text box (the previous result is cleared); then press Procesar. */
+    private void abrirArchivo() {
+        File inicial = ultimaCarpeta;
+        if (inicial == null) {
+            Path procesados = ArchivosTexto.carpetaProcesados();
+            inicial = Files.isDirectory(procesados) ? procesados.toFile() : null;
+        }
+        JFileChooser fc = new JFileChooser(inicial);
+        fc.setDialogTitle("Abrir texto de un boletín");
+        fc.setFileFilter(new FileNameExtensionFilter("Archivos de texto (*.txt)", "txt"));
+        if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        File archivo = fc.getSelectedFile();
+        ultimaCarpeta = archivo.getParentFile();
+        try {
+            String texto = ArchivosTexto.leer(archivo.toPath());
+            resultado = null;
+            numeroBoletin = "";   // the new text brings its own number
+            llenarTablas();
+            txtEdicto.setText(texto);
+            txtEdicto.setCaretPosition(0);
+            lblEstado.setText("Archivo cargado: " + archivo.getName() + " (" + texto.length()
+                + " caracteres). Presione Procesar (Ctrl+Enter).");
+            txtEdicto.requestFocusInWindow();
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(this, "No se pudo leer " + archivo + ":\n" + e.getMessage(),
+                "Abrir archivo", JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     private void llenarTablas() {
         modeloTerrenos.setRowCount(0);
         modeloVehiculos.setRowCount(0);
         if (resultado != null) {
-            String num = txtNumeroBoletin.getText().strip();
+            String num = numeroBoletin;
             resultado.terrenos().forEach(t -> modeloTerrenos.addRow(ColumnasRemate.filaTerreno(t, num)));
             resultado.vehiculos().forEach(v -> modeloVehiculos.addRow(ColumnasRemate.filaVehiculo(v, num)));
         }
@@ -234,13 +302,12 @@ public class Boletin extends JInternalFrame {
     }
 
     /**
-     * "Boletín - 191" once a text is processed (the number of the box, as used in the rows), without the window
+     * "Boletín - 191" once a text is processed (the number found in the text, as used in the rows), without the window
      * number. An empty form shows "Boletín", or "Boletín (2)", "Boletín (3)"... for further windows.
      */
     private void actualizarTitulo() {
-        String num = txtNumeroBoletin.getText().strip();
-        if (resultado != null && !num.isEmpty()) {
-            setTitle(TITULO + " - " + num);
+        if (resultado != null && !numeroBoletin.isEmpty()) {
+            setTitle(TITULO + " - " + numeroBoletin);
         } else {
             setTitle(numeroVentana > 1 ? TITULO + " (" + numeroVentana + ")" : TITULO);
         }
@@ -249,9 +316,9 @@ public class Boletin extends JInternalFrame {
     private void limpiar() {
         resultado = null;
         txtEdicto.setText("");
-        txtNumeroBoletin.setText("");
+        numeroBoletin = "";
         llenarTablas();
-        lblEstado.setText("Pegue el texto del boletín y presione Procesar (Ctrl+Enter).");
+        lblEstado.setText("Pegue el texto del boletín o ábralo desde un archivo (Ctrl+O), y presione Procesar (Ctrl+Enter).");
         txtEdicto.requestFocusInWindow();
     }
 
@@ -306,7 +373,7 @@ public class Boletin extends JInternalFrame {
                 for (int c = 0; c < valores.length; c++) {
                     valores[c] = tabla.getModel().getValueAt(filaModelo, c);
                 }
-                remates.agregarASincronizados(tipo, valores);
+                remates.agregarASincronizados(Boletin.this, tipo, valores);
             }
         });
     }

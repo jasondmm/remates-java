@@ -28,21 +28,17 @@ import javax.swing.JInternalFrame;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
-import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.JToolBar;
 import javax.swing.KeyStroke;
-import javax.swing.ListSelectionModel;
-import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
-import javax.swing.UIManager;
 import javax.swing.WindowConstants;
 import javax.swing.event.InternalFrameAdapter;
 import javax.swing.event.InternalFrameEvent;
 import javax.swing.table.AbstractTableModel;
-import javax.swing.table.DefaultTableCellRenderer;
 
 import remates.sheets.ClienteSheets;
 import remates.sheets.ConfiguracionSheets;
@@ -80,8 +76,8 @@ public class RematesSincronizados extends JInternalFrame {
     private final ModeloHoja modeloV = new ModeloHoja(ColumnasRemate.VEH_HEADERS);
     private final JTable tablaT = TablasRemates.crearTabla(modeloT, ColumnasRemate.TERRENOS_WIDTHS, modeloT::estilo);
     private final JTable tablaV = TablasRemates.crearTabla(modeloV, ColumnasRemate.VEH_WIDTHS, modeloV::estilo);
-    private final JTable numerosT = cabeceraFilas(tablaT);
-    private final JTable numerosV = cabeceraFilas(tablaV);
+    private final NumerosFila numerosT = new NumerosFila(tablaT);
+    private final NumerosFila numerosV = new NumerosFila(tablaV);
     private final JTabbedPane tabs = new JTabbedPane();
     private final PanelFiltros filtros = new PanelFiltros(this::tablaActual, this::actualizarTitulosTabs);
 
@@ -103,10 +99,11 @@ public class RematesSincronizados extends JInternalFrame {
     private final JLabel lblGuardado = new JLabel(" ");
     private final JButton btnReintentar = boton("Reintentar", "Vuelve a enviar los cambios que no se guardaron");
     private final JLabel lblEstado = new JLabel("Conectando con Google Sheets…");
+    /** Overlay over the filters and tables while the spreadsheet is loading. */
+    private final IndicadorCarga indicador = new IndicadorCarga();
 
     private final List<Runnable> alCargar = new ArrayList<>();
     private boolean cargado;
-    private boolean sincronizandoSeleccion;
     private Set<String> refsT = Set.of();
     private Set<String> refsV = Set.of();
 
@@ -203,14 +200,9 @@ public class RematesSincronizados extends JInternalFrame {
                 t.getColumnModel().getColumn(c).setCellEditor(new EditorCelda(m.getColumnName(c)));
             }
             t.getRowSorter().addRowSorterListener(e -> refrescarNumeros(t));
-            t.getSelectionModel().addListSelectionListener(e -> {
-                if (!sincronizandoSeleccion) {
-                    cabecera(t).clearSelection();   // clicking cells: cell selection, not full rows
-                }
-            });
         }
-        tabs.addTab("", scroll(tablaT, numerosT));
-        tabs.addTab("", scroll(tablaV, numerosV));
+        tabs.addTab("", numerosT.scroll());
+        tabs.addTab("", numerosV.scroll());
         filtros.registrar(tablaT);
         filtros.registrar(tablaV);
         tabs.addChangeListener(e -> filtros.tablaVisibleCambio());
@@ -225,7 +217,7 @@ public class RematesSincronizados extends JInternalFrame {
 
         JPanel raiz = new JPanel(new BorderLayout());
         raiz.add(barra, BorderLayout.NORTH);
-        raiz.add(centro, BorderLayout.CENTER);
+        raiz.add(indicador.envolver(centro), BorderLayout.CENTER);
         lblEstado.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
         raiz.add(lblEstado, BorderLayout.SOUTH);
         return raiz;
@@ -248,66 +240,8 @@ public class RematesSincronizados extends JInternalFrame {
         });
     }
 
-    /** Row-number column: clicking it selects full rows (formatting then applies to the whole row). */
-    private JTable cabeceraFilas(JTable tabla) {
-        JTable numeros = new JTable(new AbstractTableModel() {
-            @Override
-            public int getRowCount() {
-                return tabla.getRowCount();
-            }
-
-            @Override
-            public int getColumnCount() {
-                return 1;
-            }
-
-            @Override
-            public Object getValueAt(int r, int c) {
-                return r + 1;
-            }
-        });
-        numeros.setRowHeight(tabla.getRowHeight());
-        numeros.setFocusable(false);
-        numeros.setTableHeader(null);
-        numeros.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
-        numeros.setToolTipText("Clic para seleccionar la fila completa (Mayús/Ctrl para varias)");
-        DefaultTableCellRenderer r = new DefaultTableCellRenderer();
-        r.setHorizontalAlignment(SwingConstants.CENTER);
-        r.setBackground(UIManager.getColor("TableHeader.background"));
-        numeros.setDefaultRenderer(Object.class, r);
-        numeros.setPreferredScrollableViewportSize(new Dimension(46, 0));
-        numeros.getSelectionModel().addListSelectionListener(e -> {
-            if (e.getValueIsAdjusting() || sincronizandoSeleccion) {
-                return;
-            }
-            int[] filas = numeros.getSelectedRows();
-            if (filas.length == 0) {
-                return;
-            }
-            sincronizandoSeleccion = true;
-            try {
-                tabla.clearSelection();
-                for (int f : filas) {
-                    tabla.addRowSelectionInterval(f, f);
-                }
-                tabla.setColumnSelectionInterval(0, tabla.getColumnCount() - 1);
-            } finally {
-                sincronizandoSeleccion = false;
-            }
-        });
-        return numeros;
-    }
-
-    private JTable cabecera(JTable tabla) {
+    private NumerosFila cabecera(JTable tabla) {
         return tabla == tablaT ? numerosT : numerosV;
-    }
-
-    private static JScrollPane scroll(JTable tabla, JTable numeros) {
-        JScrollPane s = new JScrollPane(tabla);
-        s.setRowHeaderView(numeros);
-        JLabel esquina = new JLabel("#", SwingConstants.CENTER);
-        s.setCorner(JScrollPane.UPPER_LEFT_CORNER, esquina);
-        return s;
     }
 
     private JTable tablaActual() {
@@ -328,12 +262,12 @@ public class RematesSincronizados extends JInternalFrame {
 
     /** The row-number column follows the visible rows (added, deleted, filtered or sorted) and their heights. */
     private void refrescarNumeros(JTable tabla) {
-        JTable numeros = cabecera(tabla);
+        NumerosFila numeros = cabecera(tabla);
         if (numeros == null) {
             return;   // still building the form
         }
-        ((AbstractTableModel) numeros.getModel()).fireTableDataChanged();
-        TablasRemates.ajustarAltos(tabla, ((ModeloHoja) tabla.getModel())::estilo, numeros);
+        TablasRemates.ajustarAltos(tabla, ((ModeloHoja) tabla.getModel())::estilo, null);
+        numeros.refrescar();   // recount + the same row heights
     }
 
     private void habilitarEdicion(boolean si) {
@@ -355,17 +289,27 @@ public class RematesSincronizados extends JInternalFrame {
         cargar();
     }
 
+    private static final String CONECTANDO =
+        "Conectando con Google Sheets… (si se abre el navegador, autorice el acceso)";
+    private static final String CARGANDO = "Cargando la hoja desde Google Sheets…";
+
+    /** True while the spreadsheet is being loaded (the overlay is shown). */
+    public boolean cargando() {
+        return indicador.activo();
+    }
+
     private void cargar() {
         cargado = false;
         habilitarEdicion(false);
-        lblEstado.setText(fuente == null
-            ? "Conectando con Google Sheets… (la primera vez se abre el navegador para autorizar el acceso)"
-            : "Cargando la hoja…");
-        new SwingWorker<ClienteSheets.Carga, Void>() {
+        String mensaje = fuente == null ? CONECTANDO : CARGANDO;
+        lblEstado.setText(mensaje);
+        indicador.mostrar(mensaje);
+        new SwingWorker<ClienteSheets.Carga, String>() {
             @Override
             protected ClienteSheets.Carga doInBackground() throws Exception {
                 if (fuente == null) {
                     fuente = conector.conectar(configuracion);
+                    publish(CARGANDO);
                 }
                 try {
                     return fuente.cargar();
@@ -373,16 +317,25 @@ public class RematesSincronizados extends JInternalFrame {
                     if (!ClienteSheets.esSesionInvalida(e)) {
                         throw e;
                     }
+                    publish(CONECTANDO);
                     synchronized (RematesSincronizados.this) {   // same lock as reconnecting while saving
                         configuracion.borrarSesion();   // revoked or expired sign-in: sign in again once
                         fuente = conector.conectar(configuracion);
                     }
+                    publish(CARGANDO);
                     return fuente.cargar();
                 }
             }
 
             @Override
+            protected void process(List<String> pasos) {
+                indicador.mostrar(pasos.get(pasos.size() - 1));
+                lblEstado.setText(pasos.get(pasos.size() - 1));
+            }
+
+            @Override
             protected void done() {
+                indicador.ocultar();
                 try {
                     mostrar(get());
                 } catch (InterruptedException e) {
@@ -607,7 +560,7 @@ public class RematesSincronizados extends JInternalFrame {
         }
         historial.hacer(new Cambios.EliminarFilas(hoja, filas));
         t.clearSelection();
-        cabecera(t).clearSelection();
+        cabecera(t).numeros().clearSelection();
         lblEstado.setText(filas.size() == 1 ? "Fila eliminada (Ctrl+Z para deshacer)."
             : filas.size() + " filas eliminadas (Ctrl+Z para deshacer).");
     }
@@ -629,8 +582,7 @@ public class RematesSincronizados extends JInternalFrame {
         HojaSincronizada hoja = modelo.hoja;
         int colRef = hoja.columnaReferencia();
         String ref = HojaSincronizada.clave(valores[colRef]);
-        int existente = hoja.indiceDeReferencia(ref);
-        Remates.activar(this);
+        int existente = hoja.indiceDeReferencia(ref);   // stays behind the Boletín (not brought to front)
         if (existente < 0) {
             FilaSincronizada fila = FilaSincronizada.deValores(valores);
             historial.hacer(new Cambios.AgregarFila(hoja, fila));
@@ -658,7 +610,14 @@ public class RematesSincronizados extends JInternalFrame {
         if (vista >= 0) {
             t.setRowSelectionInterval(vista, vista);
             t.setColumnSelectionInterval(0, t.getColumnCount() - 1);
+            // scroll to the row (also when the window is not showing it yet: after the layout)
             t.scrollRectToVisible(t.getCellRect(vista, 0, true));
+            SwingUtilities.invokeLater(() -> {
+                int v = t.convertRowIndexToView(hoja.indiceDe(fila));
+                if (v >= 0) {
+                    t.scrollRectToVisible(t.getCellRect(v, 0, true));
+                }
+            });
         }
     }
 

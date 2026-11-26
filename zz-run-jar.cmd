@@ -1,0 +1,1 @@
+%USERPROFILE%\java-runtime\bin\java.exe -jar ./target/remates.jar
