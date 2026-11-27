@@ -29,6 +29,7 @@ final class CampoBorrable extends JPanel {
 
     private final JTextField campo;
     private final JButton borrar;
+    private boolean invalido;
 
     CampoBorrable(String placeholder) {
         super(new BorderLayout());
@@ -68,8 +69,22 @@ final class CampoBorrable extends JPanel {
         return campo;
     }
 
+    /** After a light/dark switch: the text field's border and background of the new look (the children update later). */
+    @Override
+    public void updateUI() {
+        super.updateUI();
+        if (campo != null) {
+            javax.swing.SwingUtilities.invokeLater(() -> {
+                setBorder(invalido ? BorderFactory.createLineBorder(new Color(0xC0, 0x30, 0x30), 2)
+                    : UIManager.getBorder("TextField.border"));
+                setBackground(campo.getBackground());
+            });
+        }
+    }
+
     /** Red border when the content is not valid (e.g. a range bound that is not a number). */
     void marcarInvalido(boolean invalido) {
+        this.invalido = invalido;
         setBorder(invalido ? BorderFactory.createLineBorder(new Color(0xC0, 0x30, 0x30), 2)
             : UIManager.getBorder("TextField.border"));
     }

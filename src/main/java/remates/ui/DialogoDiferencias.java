@@ -22,7 +22,8 @@ import javax.swing.table.DefaultTableModel;
 
 /**
  * Shown when a Boletín row is added to "Remates sincronizados" and its Referencia N° is already there: both rows
- * side by side, the differing values highlighted; the user replaces the values or cancels.
+ * side by side, the differing values highlighted; the user replaces the values or cancels. Columns flagged as ignored
+ * (Estado, the user's own column) are neither shown nor compared.
  */
 final class DialogoDiferencias extends JDialog {
 
@@ -30,7 +31,7 @@ final class DialogoDiferencias extends JDialog {
     private boolean reemplazar;
 
     private DialogoDiferencias(Component padre, List<String> columnas, Object[] boletin, Object[] sincronizado,
-                               boolean[] difiere, String referencia, int cuantas) {
+                               boolean[] difiere, boolean[] ignorar, String referencia, int cuantas) {
         super(SwingUtilities.getWindowAncestor(padre), "La referencia ya está en Remates sincronizados",
             ModalityType.APPLICATION_MODAL);
         DefaultTableModel modelo = new DefaultTableModel(new Object[] {"Columna", "Boletín", "Remates sincronizados"}, 0) {
@@ -39,9 +40,14 @@ final class DialogoDiferencias extends JDialog {
                 return false;
             }
         };
+        List<Boolean> difiereFila = new java.util.ArrayList<>();
         for (int i = 0; i < columnas.size(); i++) {
+            if (i < ignorar.length && ignorar[i]) {
+                continue;
+            }
             modelo.addRow(new Object[] {columnas.get(i), ColumnasRemate.textoCelda(boletin[i]),
                 ColumnasRemate.textoCelda(sincronizado[i])});
+            difiereFila.add(difiere[i]);
         }
         JTable tabla = new JTable(modelo);
         tabla.setRowHeight(22);
@@ -52,16 +58,18 @@ final class DialogoDiferencias extends JDialog {
             @Override
             public Component getTableCellRendererComponent(JTable t, Object v, boolean sel, boolean foc, int r, int c) {
                 super.getTableCellRendererComponent(t, v, sel, foc, r, c);
+                boolean d = difiereFila.get(r);
                 if (!sel) {
-                    setBackground(difiere[r] ? DIFERENTE : t.getBackground());
+                    setBackground(d ? DIFERENTE : t.getBackground());
+                    setForeground(d ? Color.BLACK : t.getForeground());
                 }
-                setFont(getFont().deriveFont(difiere[r] ? Font.BOLD : Font.PLAIN));
+                setFont(getFont().deriveFont(d ? Font.BOLD : Font.PLAIN));
                 setToolTipText(v == null ? null : v.toString());
                 return this;
             }
         });
         JScrollPane scroll = new JScrollPane(tabla);
-        scroll.setPreferredSize(new Dimension(860, Math.min(520, 26 + 22 * columnas.size())));
+        scroll.setPreferredSize(new Dimension(860, Math.min(520, 26 + 22 * modelo.getRowCount())));
 
         JButton cancelar = new JButton("Cancelar");
         cancelar.addActionListener(e -> dispose());
@@ -78,7 +86,8 @@ final class DialogoDiferencias extends JDialog {
         JPanel raiz = new JPanel(new BorderLayout(0, 8));
         raiz.setBorder(BorderFactory.createEmptyBorder(10, 10, 8, 10));
         raiz.add(new JLabel("<html>La referencia <b>" + referencia + "</b> ya está en Remates sincronizados. "
-            + cuantas + " de " + columnas.size() + " columnas tienen valores distintos (resaltadas).</html>"),
+            + cuantas + " de " + modelo.getRowCount() + " columnas tienen valores distintos (resaltadas). "
+            + "El Estado no se compara ni se reemplaza.</html>"),
             BorderLayout.NORTH);
         raiz.add(scroll, BorderLayout.CENTER);
         raiz.add(botones, BorderLayout.SOUTH);
@@ -93,11 +102,14 @@ final class DialogoDiferencias extends JDialog {
      * is just told so).
      */
     static boolean preguntar(Component padre, List<String> columnas, Object[] boletin, Object[] sincronizado,
-                             String referencia) {
+                             boolean[] ignorar, String referencia) {
         boolean[] difiere = diferencias(boletin, sincronizado);
         int cuantas = 0;
-        for (boolean d : difiere) {
-            cuantas += d ? 1 : 0;
+        for (int i = 0; i < difiere.length; i++) {
+            if (i < ignorar.length && ignorar[i]) {
+                difiere[i] = false;
+            }
+            cuantas += difiere[i] ? 1 : 0;
         }
         if (cuantas == 0) {
             JOptionPane.showMessageDialog(padre, "La referencia " + referencia
@@ -105,8 +117,8 @@ final class DialogoDiferencias extends JDialog {
                 JOptionPane.INFORMATION_MESSAGE);
             return false;
         }
-        DialogoDiferencias d = new DialogoDiferencias(padre, columnas, boletin, sincronizado, difiere, referencia,
-            cuantas);
+        DialogoDiferencias d = new DialogoDiferencias(padre, columnas, boletin, sincronizado, difiere, ignorar,
+            referencia, cuantas);
         d.setVisible(true);
         return d.reemplazar;
     }

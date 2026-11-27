@@ -45,6 +45,13 @@ public class Remates extends JFrame {
         escritorio.setBackground(new Color(0x6B, 0x7B, 0x8C));
         setContentPane(escritorio);
         setJMenuBar(crearMenu());
+        // light/dark: a change in Windows is picked up as soon as the user comes back to the app
+        addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowActivated(WindowEvent e) {
+                Apariencia.revisarWindows();
+            }
+        });
         setSize(1366, 860);                 // size when the window is restored
         setMinimumSize(new Dimension(800, 500));
         setLocationRelativeTo(null);

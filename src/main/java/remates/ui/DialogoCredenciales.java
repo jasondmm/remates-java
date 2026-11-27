@@ -54,7 +54,7 @@ final class DialogoCredenciales extends JDialog {
         if (!configuracion.spreadsheetId().isEmpty()) {
             enlace.setText("https://docs.google.com/spreadsheets/d/" + configuracion.spreadsheetId() + "/edit");
         }
-        error.setForeground(new Color(0xB0, 0x20, 0x20));
+        error.setForeground(new Color(0xD0, 0x30, 0x30));   // readable on the light and dark look
 
         JPanel campos = new JPanel(new GridBagLayout());
         GridBagConstraints c = new GridBagConstraints();

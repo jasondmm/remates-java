@@ -14,6 +14,7 @@ import java.util.Map;
 import javax.swing.JTable;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingConstants;
+import javax.swing.UIManager;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableColumn;
@@ -41,6 +42,9 @@ public final class TablasRemates {
     private static final float MEZCLA_CRUZ = 0.35f;
     /** Header of the selected cell's column. */
     static final Color HEADER_FILL_ACTIVO = new Color(0x3A, 0x7C, 0xBF);
+    /** Header under the mouse / being clicked (FlatLaf would use its light-gray header colors under white text). */
+    static final Color HEADER_FILL_HOVER = new Color(0x2B, 0x64, 0x96);
+    static final Color HEADER_FILL_PRESIONADO = new Color(0x16, 0x3A, 0x5A);
 
     /** Formatting of a cell by model position; null = plain. */
     @FunctionalInterface
@@ -59,6 +63,7 @@ public final class TablasRemates {
     }
 
     public static JTable crearTabla(TableModel modelo, int[] widths, Estilo estilo) {
+        coloresEncabezado();   // before the header is created: its UI reads them when installed
         JTable tabla = new JTable(modelo);
         tabla.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
         tabla.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
@@ -73,6 +78,7 @@ public final class TablasRemates {
                                                            int row, int col) {
                 super.getTableCellRendererComponent(t, value, selected, focus, row, col);
                 setBackground(t != null && col == columnaActiva(t) ? HEADER_FILL_ACTIVO : HEADER_FILL);
+                setForeground(Color.WHITE);   // each time: a light/dark switch (updateUI) resets the renderer's colors
                 return this;
             }
         };
@@ -93,10 +99,13 @@ public final class TablasRemates {
                 if (!selected) {
                     Color fondo = f != null && f.fondo() != null ? f.fondo() : t.getBackground();
                     if (row == filaActiva(t) || col == columnaActiva(t)) {
-                        fondo = mezclar(fondo, CRUZ, MEZCLA_CRUZ);   // crosshair of the selected cell
+                        // crosshair of the selected cell (a stronger tint on dark tables)
+                        fondo = mezclar(fondo, CRUZ, Apariencia.luz(fondo) < 0.4 ? 0.3f : MEZCLA_CRUZ);
                     }
                     setBackground(fondo);
-                    setForeground(f != null && f.fuente() != null ? f.fuente() : t.getForeground());
+                    // an explicit font color wins; otherwise the look's text, black/white if it would not read
+                    setForeground(f != null && f.fuente() != null ? f.fuente()
+                        : Apariencia.textoSobre(fondo, t.getForeground()));
                 }
                 setHorizontalAlignment(alineacion(f, value, t.getColumnName(col)));
                 String texto = shown == null ? null : shown.toString();
@@ -113,6 +122,17 @@ public final class TablasRemates {
         }
         resaltarCruz(tabla);
         return tabla;
+    }
+
+    /**
+     * Hover / pressed colors of the dark-blue headers, white text. Set as application defaults, which outlive a
+     * light/dark switch (the header UI reads them again when it is reinstalled).
+     */
+    static void coloresEncabezado() {
+        UIManager.put("TableHeader.hoverBackground", HEADER_FILL_HOVER);
+        UIManager.put("TableHeader.hoverForeground", Color.WHITE);
+        UIManager.put("TableHeader.pressedBackground", HEADER_FILL_PRESIONADO);
+        UIManager.put("TableHeader.pressedForeground", Color.WHITE);
     }
 
     /**

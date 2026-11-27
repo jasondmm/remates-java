@@ -35,6 +35,7 @@ import javax.swing.JToolBar;
 import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
+import javax.swing.UIManager;
 import javax.swing.WindowConstants;
 import javax.swing.event.InternalFrameAdapter;
 import javax.swing.event.InternalFrameEvent;
@@ -83,8 +84,14 @@ public class RematesSincronizados extends JInternalFrame {
 
     private final JButton btnDeshacer = boton("Deshacer", "Deshacer (Ctrl+Z)");
     private final JButton btnRehacer = boton("Rehacer", "Rehacer (Ctrl+Y)");
-    private final JButton btnFondo = boton("Fondo", "Color de fondo de las celdas o filas seleccionadas");
-    private final JButton btnFuente = boton("Color de letra", "Color de la letra");
+    /** Colors the "Fondo" / "Color de letra" buttons start with when none was chosen yet. */
+    static final Color FONDO_INICIAL = new Color(0xFF, 0xF2, 0xCC);
+    static final Color LETRA_INICIAL = new Color(0xC0, 0x00, 0x00);
+    private final Preferencias preferencias;
+    private final BotonColor fondo;
+    private final BotonColor letra;
+    /** Windows light/dark switch: the color buttons are painted again with the new look's colors. */
+    private final java.beans.PropertyChangeListener alCambiarApariencia = this::aparienciaCambiada;
     private final JComboBox<Integer> comboTamano = new JComboBox<>(TAMANOS);
     private final JButton btnNegrita = boton("N", "Negrita");
     private final JButton btnCursiva = boton("K", "Cursiva");
@@ -113,8 +120,13 @@ public class RematesSincronizados extends JInternalFrame {
         this.remates = remates;
         this.configuracion = configuracion;
         this.conector = conector;
+        this.preferencias = new Preferencias(configuracion.carpeta());
+        fondo = new BotonColor("Fondo", "de fondo", Preferencias.COLOR_FONDO, FONDO_INICIAL, true, Formato::conFondo);
+        letra = new BotonColor("Color de letra", "de letra", Preferencias.COLOR_LETRA, LETRA_INICIAL, false,
+            Formato::conFuente);
         setFrameIcon(IconoApp.iconoPequeno());
         setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+        UIManager.addPropertyChangeListener(alCambiarApariencia);
         setContentPane(construir());
         setSize(1240, 720);
         habilitarEdicion(false);
@@ -126,6 +138,7 @@ public class RematesSincronizados extends JInternalFrame {
 
             @Override
             public void internalFrameClosed(InternalFrameEvent e) {
+                UIManager.removePropertyChangeListener(alCambiarApariencia);
                 remates.sincronizadosCerrado(RematesSincronizados.this);
             }
         });
@@ -139,8 +152,10 @@ public class RematesSincronizados extends JInternalFrame {
         barra.add(btnDeshacer);
         barra.add(btnRehacer);
         barra.addSeparator();
-        barra.add(btnFondo);
-        barra.add(btnFuente);
+        barra.add(fondo.aplicar);
+        barra.add(fondo.elegir);
+        barra.add(letra.aplicar);
+        barra.add(letra.elegir);
         comboTamano.setMaximumSize(new Dimension(70, 28));
         comboTamano.setSelectedItem(10);
         comboTamano.setToolTipText("Tamaño de letra");
@@ -169,8 +184,6 @@ public class RematesSincronizados extends JInternalFrame {
 
         btnDeshacer.addActionListener(e -> deshacer());
         btnRehacer.addActionListener(e -> rehacer());
-        btnFondo.addActionListener(e -> elegirColor("Color de fondo", Formato::conFondo, "Color de fondo"));
-        btnFuente.addActionListener(e -> elegirColor("Color de letra", Formato::conFuente, "Color de letra"));
         // the combo is only changed by the user (its initial value is set before this listener exists)
         comboTamano.addActionListener(e -> {
             Integer t = (Integer) comboTamano.getSelectedItem();
@@ -271,7 +284,7 @@ public class RematesSincronizados extends JInternalFrame {
     }
 
     private void habilitarEdicion(boolean si) {
-        for (JComponent c : List.of(btnFondo, btnFuente, comboTamano, btnNegrita, btnCursiva, btnSubrayado,
+        for (JComponent c : List.of(fondo.aplicar, fondo.elegir, letra.aplicar, letra.elegir, comboTamano, btnNegrita, btnCursiva, btnSubrayado,
             btnTachado, btnIzquierda, btnCentro, btnDerecha, btnBorrarFormato, btnEliminar, btnActualizar)) {
             c.setEnabled(si);
         }
@@ -536,15 +549,93 @@ public class RematesSincronizados extends JInternalFrame {
         formatear(f -> poner.apply(f, !todas), descripcion);
     }
 
-    private void elegirColor(String titulo, java.util.function.BiFunction<Formato, Color, Formato> poner,
-                             String descripcion) {
-        if (seleccion().isEmpty()) {
-            formatear(f -> f, descripcion);   // shows the "select cells" hint
-            return;
+    private void aparienciaCambiada(java.beans.PropertyChangeEvent e) {
+        if ("lookAndFeel".equals(e.getPropertyName())) {
+            SwingUtilities.invokeLater(() -> {
+                fondo.repintar();
+                letra.repintar();
+            });
         }
-        Color c = JColorChooser.showDialog(this, titulo, Color.WHITE);
-        if (c != null) {
-            formatear(f -> poner.apply(f, c), descripcion);
+    }
+
+    Color colorFondo() {
+        return fondo.color;
+    }
+
+    Color colorLetra() {
+        return letra.color;
+    }
+
+    /**
+     * A toolbar color: the main button is painted with the current color and applies it to the selected cells in one
+     * click; "▾" opens the color picker on it, the chosen color becomes the button's color, is saved in the
+     * preferences (loaded again next time) and, when cells are selected, applied to them.
+     */
+    private final class BotonColor {
+        final JButton aplicar;
+        final JButton elegir;
+        private final String nombre;
+        private final String clave;
+        private final boolean esFondo;
+        private final java.util.function.BiFunction<Formato, Color, Formato> poner;
+        Color color;
+
+        BotonColor(String texto, String que, String clave, Color inicial, boolean esFondo,
+                   java.util.function.BiFunction<Formato, Color, Formato> poner) {
+            this.nombre = "Color " + que;
+            this.clave = clave;
+            this.esFondo = esFondo;
+            this.poner = poner;
+            aplicar = boton(texto, "Pone el color " + que + " del botón en las celdas o filas seleccionadas");
+            elegir = boton("▾", "Elegir el color " + que + " (queda guardado para la próxima vez)");
+            aplicar.addActionListener(e -> formatear(f -> poner.apply(f, color), nombre));
+            elegir.addActionListener(e -> elegirColor());
+            pintar(preferencias.color(clave, inicial));
+        }
+
+        private void elegirColor() {
+            Color c = JColorChooser.showDialog(RematesSincronizados.this, nombre, color);
+            if (c == null) {
+                return;
+            }
+            pintar(c);
+            try {
+                preferencias.guardarColor(clave, c);
+            } catch (java.io.IOException ex) {
+                lblEstado.setText("No se pudo guardar el color elegido: " + ex.getMessage());
+            }
+            if (!seleccion().isEmpty()) {
+                formatear(f -> poner.apply(f, c), nombre);
+            }
+        }
+
+        /**
+         * Fill color: the button's background (text black or white, whichever reads better). Font color: the
+         * button's text, bold, on the normal button unless the color is too light to read (then on dark gray).
+         */
+        private void pintar(Color c) {
+            color = c;
+            double luz = Apariencia.luz(c);
+            Color fondoBoton;
+            if (esFondo) {
+                fondoBoton = c;
+                aplicar.setForeground(luz < 0.55 ? Color.WHITE : Color.BLACK);
+            } else {
+                aplicar.setForeground(c);
+                aplicar.setFont(aplicar.getFont().deriveFont(Font.BOLD));
+                // too close to the button's own color to read: on dark gray (light colors) or light gray (dark ones)
+                Color normal = UIManager.getColor("Button.background");
+                double base = normal == null ? 0.9 : Apariencia.luz(normal);
+                fondoBoton = Math.abs(luz - base) >= 0.3 ? null
+                    : base > 0.5 ? new Color(0x40, 0x40, 0x40) : new Color(0xE0, 0xE0, 0xE0);
+            }
+            aplicar.setBackground(fondoBoton);   // FlatLaf paints it as the (rounded) button background
+            aplicar.repaint();
+        }
+
+        /** Repaints with the current color (after a light/dark switch: the button's own colors changed). */
+        void repintar() {
+            pintar(color);
         }
     }
 
@@ -592,8 +683,17 @@ public class RematesSincronizados extends JInternalFrame {
         }
         FilaSincronizada fila = hoja.filas().get(existente);
         seleccionar(fila);
-        if (DialogoDiferencias.preguntar(this, hoja.columnas(), valores, fila.valores(), ref)) {
-            historial.hacer(new Cambios.ReemplazarValores(hoja, fila, valores));
+        // "Estado" is the user's own column: not compared and never overwritten from the Boletín
+        Object[] actuales = fila.valores();
+        Object[] nuevos = valores.clone();
+        boolean[] ignorar = new boolean[nuevos.length];
+        int colEstado = hoja.columnas().indexOf(ColumnasRemate.ESTADO);
+        if (colEstado >= 0 && colEstado < nuevos.length) {
+            nuevos[colEstado] = actuales[colEstado];
+            ignorar[colEstado] = true;
+        }
+        if (DialogoDiferencias.preguntar(this, hoja.columnas(), nuevos, actuales, ignorar, ref)) {
+            historial.hacer(new Cambios.ReemplazarValores(hoja, fila, nuevos));
             lblEstado.setText("Valores de la referencia " + ref + " reemplazados.");
         }
     }

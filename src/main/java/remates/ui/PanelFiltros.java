@@ -68,7 +68,10 @@ public class PanelFiltros extends JPanel {
         }
     }
 
-    private static final Color ACENTO = new Color(0x1F, 0x4E, 0x78);
+    /** Mid blue / gray / orange: readable on the light and dark look. */
+    private static final Color ACENTO = new Color(0x3A, 0x7C, 0xBF);
+    private static final Color SECUNDARIO = new Color(0x80, 0x80, 0x80);
+    private static final Color AVISO = new Color(0xC8, 0x6A, 0x00);
     private static final int MAX_FILAS_VISIBLES = 5;
     private static final int MAX_SUGERENCIAS = 500;
 
@@ -120,7 +123,7 @@ public class PanelFiltros extends JPanel {
         resumen.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 10));
 
         JPanel cabecera = new JPanel(new BorderLayout());
-        cabecera.setBorder(BorderFactory.createMatteBorder(1, 0, 1, 0, new Color(0xC8, 0xC8, 0xC8)));
+        cabecera.setBorder(BorderFactory.createMatteBorder(1, 0, 1, 0, new Color(0x80, 0x80, 0x80, 0x60)));
         cabecera.add(encabezado, BorderLayout.CENTER);
         cabecera.add(resumen, BorderLayout.EAST);
         cabecera.addMouseListener(new MouseAdapter() {
@@ -572,11 +575,11 @@ public class PanelFiltros extends JPanel {
                 boolean comparacion = FiltroTexto.esComparacion(texto());
                 etiqueta.setText(esExcluir() ? (comparacion ? "no es" : "no contiene")
                     : (comparacion ? "es" : "contiene"));
-                etiqueta.setForeground(new Color(0x60, 0x60, 0x60));
+                etiqueta.setForeground(SECUNDARIO);
                 etiqueta.setToolTipText(null);
             } else {
                 etiqueta.setText("no aplica aquí");
-                etiqueta.setForeground(new Color(0xA0, 0x50, 0x00));
+                etiqueta.setForeground(AVISO);
                 etiqueta.setToolTipText("La pestaña visible no tiene la columna «" + columna()
                     + "»; este filtro se ignora mientras no cambie de pestaña");
             }
@@ -657,7 +660,7 @@ public class PanelFiltros extends JPanel {
             selector.alCambiar(this::selectorMovido);
 
             JLabel rotulo = new JLabel("Rango");
-            rotulo.setForeground(new Color(0x60, 0x60, 0x60));
+            rotulo.setForeground(SECUNDARIO);
             GridBagConstraints c = new GridBagConstraints();
             c.insets = new Insets(0, 0, 0, 6);
             c.fill = GridBagConstraints.HORIZONTAL;

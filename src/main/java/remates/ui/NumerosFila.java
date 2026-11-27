@@ -45,9 +45,19 @@ final class NumerosFila {
         numeros.setTableHeader(null);
         numeros.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         numeros.setToolTipText("Clic para seleccionar la fila completa (Mayús/Ctrl para varias)");
-        DefaultTableCellRenderer r = new DefaultTableCellRenderer();
+        DefaultTableCellRenderer r = new DefaultTableCellRenderer() {
+            @Override
+            public java.awt.Component getTableCellRendererComponent(JTable t, Object v, boolean sel, boolean foc,
+                                                                    int fila, int col) {
+                super.getTableCellRendererComponent(t, v, sel, foc, fila, col);
+                if (!sel) {   // read each time: follows a light/dark switch
+                    setBackground(UIManager.getColor("TableHeader.background"));
+                    setForeground(UIManager.getColor("TableHeader.foreground"));
+                }
+                return this;
+            }
+        };
         r.setHorizontalAlignment(SwingConstants.CENTER);
-        r.setBackground(UIManager.getColor("TableHeader.background"));
         numeros.setDefaultRenderer(Object.class, r);
         numeros.setPreferredScrollableViewportSize(new Dimension(46, 0));
 

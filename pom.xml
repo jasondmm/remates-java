@@ -19,6 +19,7 @@
         <google-api-client.version>2.9.2</google-api-client.version>
         <google-sheets.version>v4-rev20261019-2.9.2</google-sheets.version>
         <google-oauth-client.version>1.36.0</google-oauth-client.version>
+        <flatlaf.version>3.8</flatlaf.version>
     </properties>
 
     <dependencies>
@@ -37,6 +38,12 @@
             <groupId>com.google.oauth-client</groupId>
             <artifactId>google-oauth-client-jetty</artifactId>
             <version>${google-oauth-client.version}</version>
+        </dependency>
+        <!-- modern look and feel, light or dark following Windows -->
+        <dependency>
+            <groupId>com.formdev</groupId>
+            <artifactId>flatlaf</artifactId>
+            <version>${flatlaf.version}</version>
         </dependency>
     </dependencies>
 

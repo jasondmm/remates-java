@@ -31,9 +31,19 @@ final class BuscadorTexto extends JPanel {
     /** More highlights than this make the text area slow; the count still includes every match. */
     private static final int MAX_RESALTADOS = 2000;
     private static final Highlighter.HighlightPainter TODAS =
-        new DefaultHighlighter.DefaultHighlightPainter(new Color(0xFF, 0xF0, 0x80));
+        resaltado(new Color(0xFF, 0xF0, 0x80), new Color(0x6B, 0x5B, 0x00));
     private static final Highlighter.HighlightPainter ACTUAL =
-        new DefaultHighlighter.DefaultHighlightPainter(new Color(0xFF, 0xA5, 0x40));
+        resaltado(new Color(0xFF, 0xA5, 0x40), new Color(0xB0, 0x55, 0x00));
+
+    /** Highlight color for the light / dark look (chosen when painting, so it follows a light/dark switch). */
+    private static Highlighter.HighlightPainter resaltado(Color claro, Color oscuro) {
+        return new DefaultHighlighter.DefaultHighlightPainter(claro) {
+            @Override
+            public Color getColor() {
+                return Apariencia.esOscuro() ? oscuro : claro;
+            }
+        };
+    }
 
     private final JTextComponent area;
     private final CampoBorrable campo = new CampoBorrable("Buscar en el texto…");

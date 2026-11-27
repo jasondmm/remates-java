@@ -48,7 +48,14 @@ public class Boletin extends JInternalFrame {
 
     private final BoletinParser parser = new BoletinParser();
 
-    private final JTextArea txtEdicto = new JTextArea();
+    /** Pasting (Ctrl+V, Mayús+Insert) processes the text right away. */
+    private final JTextArea txtEdicto = new JTextArea() {
+        @Override
+        public void paste() {
+            super.paste();
+            SwingUtilities.invokeLater(Boletin.this::procesar);
+        }
+    };
     private final BuscadorTexto buscador = new BuscadorTexto(txtEdicto);
     /** Number of the processed boletín (from the text), "" when unknown. */
     private String numeroBoletin = "";
@@ -251,7 +258,7 @@ public class Boletin extends JInternalFrame {
         }.execute();
     }
 
-    /** Loads a .txt file into the text box (the previous result is cleared); then press Procesar. */
+    /** Loads a .txt file into the text box (the previous result is cleared) and processes it. */
     private void abrirArchivo() {
         File inicial = ultimaCarpeta;
         if (inicial == null) {
@@ -273,9 +280,8 @@ public class Boletin extends JInternalFrame {
             llenarTablas();
             txtEdicto.setText(texto);
             txtEdicto.setCaretPosition(0);
-            lblEstado.setText("Archivo cargado: " + archivo.getName() + " (" + texto.length()
-                + " caracteres). Presione Procesar (Ctrl+Enter).");
             txtEdicto.requestFocusInWindow();
+            procesar();
         } catch (IOException e) {
             JOptionPane.showMessageDialog(this, "No se pudo leer " + archivo + ":\n" + e.getMessage(),
                 "Abrir archivo", JOptionPane.ERROR_MESSAGE);
