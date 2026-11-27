@@ -123,7 +123,7 @@ final class DialogoDiferencias extends JDialog {
         return d.reemplazar;
     }
 
-    /** Per column: true when the values differ (amounts compared to the cent, text as shown). */
+    /** Per column: true when the values differ (amounts compared to the cent, text as shown, "No indicado" = empty). */
     static boolean[] diferencias(Object[] a, Object[] b) {
         boolean[] d = new boolean[a.length];
         for (int i = 0; i < a.length; i++) {
@@ -132,9 +132,15 @@ final class DialogoDiferencias extends JDialog {
             if (x instanceof Number n && y instanceof Number m) {
                 d[i] = Math.abs(n.doubleValue() - m.doubleValue()) >= 0.005;
             } else {
-                d[i] = !ColumnasRemate.textoCelda(x).strip().equals(ColumnasRemate.textoCelda(y).strip());
+                d[i] = !comparable(x).equals(comparable(y));
             }
         }
         return d;
+    }
+
+    /** Text as shown; "No indicado" counts as empty (the sheet keeps empty cells empty). */
+    private static String comparable(Object v) {
+        String s = ColumnasRemate.textoCelda(v).strip();
+        return s.equals(ColumnasRemate.NO_INDICADO) ? "" : s;
     }
 }

@@ -1,7 +1,7 @@
 package remates.sincronizados;
 
 /**
- * One cell of the synchronized sheet: its value (Double for amounts, String otherwise, "No indicado" when empty),
+ * One cell of the synchronized sheet: its value (Double for amounts, String otherwise, "" when empty),
  * its formatting, and whether its last change could not be saved to Google Sheets yet.
  */
 public final class CeldaSincronizada {

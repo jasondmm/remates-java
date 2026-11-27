@@ -797,7 +797,7 @@ public class RematesSincronizados extends JInternalFrame {
 
     // ------------------------------------------------------------------ cell editor with validation
 
-    /** Amounts accept 20.000.000 / 20,000,000.00 (saved as numbers); dates must be dd/mm/aaaa; empty = "No indicado". */
+    /** Amounts accept 20.000.000 / 20,000,000.00 (saved as numbers); dates must be dd/mm/aaaa; empty = empty cell. */
     private static final class EditorCelda extends DefaultCellEditor {
         private final JTextField campo;
         private final String columna;
@@ -829,7 +829,7 @@ public class RematesSincronizados extends JInternalFrame {
         public boolean stopCellEditing() {
             String t = campo.getText().strip();
             if (t.isEmpty()) {
-                valor = ColumnasRemate.ESTADO.equals(columna) ? "" : ColumnasRemate.NO_INDICADO;
+                valor = "";
             } else if (ColumnasRemate.NUM_COLS.contains(columna)) {
                 Double d = FiltroTexto.parseNumero(t);
                 if (d == null) {

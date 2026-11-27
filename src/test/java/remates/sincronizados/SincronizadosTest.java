@@ -175,7 +175,7 @@ public final class SincronizadosTest {
         check("columnas encontradas por nombre (orden distinto, columna extra)", todas);
         check("filas finales solo con formato no son datos", h.filas().size() == 1);
         check("monto como número", Double.valueOf(1500000.5).equals(h.filas().get(0).celda(cols.indexOf("Monto primer remate")).getValor()));
-        check("celda vacía = «No indicado»", ColumnasRemate.NO_INDICADO.equals(h.filas().get(0).celda(cols.indexOf("Provincia")).getValor()));
+        check("celda vacía = vacía", "".equals(h.filas().get(0).celda(cols.indexOf("Provincia")).getValor()));
         check("referencia", h.referencias().contains("2026211951") && h.indiceDeReferencia("2026211951") == 0);
         check("sin petición de encabezado", l.inicializacion().isEmpty());
 
@@ -196,8 +196,8 @@ public final class SincronizadosTest {
         check("columnas faltantes: encabezado agregado al final (Afectado en " + nuevaAfectado + ", Estado en "
             + nuevaEstado + ", " + lv.inicializacion().size() + " peticiones)",
             nuevaAfectado == viejo.size() && nuevaEstado == viejo.size() + 1 && lv.inicializacion().size() == 2);
-        check("columnas faltantes: Afectado «No indicado», Estado vacío",
-            ColumnasRemate.NO_INDICADO.equals(lv.hoja().filas().get(0).celda(cols.indexOf(ColumnasRemate.AFECTADO)).getValor())
+        check("columnas faltantes: Afectado y Estado vacíos",
+            "".equals(lv.hoja().filas().get(0).celda(cols.indexOf(ColumnasRemate.AFECTADO)).getValor())
                 && "".equals(lv.hoja().filas().get(0).celda(cols.indexOf(ColumnasRemate.ESTADO)).getValor()));
         SimuladorSheets simViejo = new SimuladorSheets()
             .agregarPestana(ClienteSheets.TAB_TERRENOS, cols.subList(0, cols.size() - 2))

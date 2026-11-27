@@ -95,12 +95,12 @@ public final class LectorHoja {
     }
 
     /**
-     * Amount columns: the number itself; other columns: the text as shown in Sheets; empty → "No indicado"
-     * (except "Estado", which stays empty).
+     * Amount columns: the number itself; other columns: the text as shown in Sheets; an empty cell stays
+     * empty ("") in every column, as in the file.
      */
     static Object valor(CellData dato, String columna) {
         boolean numerica = ColumnasRemate.NUM_COLS.contains(columna);
-        String vacio = ColumnasRemate.ESTADO.equals(columna) ? "" : ColumnasRemate.NO_INDICADO;
+        String vacio = "";
         if (dato == null) {
             return vacio;
         }
